@@ -7,10 +7,16 @@
 ## 구성
 
 ```
-src/   모듈러 모놀리스 API (인증·호텔·예약·쿠폰·리뷰)
-web/   화면 (React + Vite + Tailwind, 빌드 결과는 public/)
-db/    스키마와 시드
+src/       모듈러 모놀리스 API (인증·호텔·예약·쿠폰·리뷰)
+web/       화면 (React + Vite + Tailwind, 빌드 결과는 public/)
+db/        스키마와 시드
+legacy/    고객사가 운영하던 이전 환경(As-Is)을 서울 리전에 재현한 Terraform과 운영 스크립트
+  iam/     legacy 작업용 평소 사용자 권한 (관리자만 apply)
+load/      0단계 로컬 k6 실험 (E-01~E-06, 실행기 run-k6.sh)
+scripts/   0단계 실험 보고서 · 그래프, 정합성 검사 · 데이터 채우기 SQL
 ```
+
+이관 전 기준선(1단계) · 이관 후 비교처럼 이관 수행사(인프라팀)가 재는 부하 시험은 인프라 저장소의 [load/](https://github.com/yubin05/hotel-booking-aws-v2/tree/main/load)에 있습니다.
 
 ## 로컬 실행
 
