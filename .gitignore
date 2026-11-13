@@ -1,0 +1,17 @@
+# 비밀값
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 의존성·빌드 결과
+node_modules/
+dist/
+coverage/
+# React 빌드 결과 (web에서 생성)
+public/
+
+# OS
+.DS_Store
+Thumbs.db
