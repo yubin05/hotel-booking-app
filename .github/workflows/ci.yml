@@ -1,9 +1,12 @@
 name: CI
 
+# legacy · load · scripts · 문서만 바뀌면 앱 테스트가 필요 없어 건너뜀
 on:
   pull_request:
+    paths-ignore: ['legacy/**', 'load/**', 'scripts/**', '**.md']
   push:
     branches: [main]
+    paths-ignore: ['legacy/**', 'load/**', 'scripts/**', '**.md']
 
 permissions:
   contents: read
