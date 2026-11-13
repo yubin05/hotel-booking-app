@@ -15,3 +15,15 @@ public/
 # OS
 .DS_Store
 Thumbs.db
+
+# Terraform (legacy/, legacy/iam/. .terraform.lock.hcl은 커밋한다)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.tfvars
+!*.tfvars.example
+
+# k6 결과
+load/results/
