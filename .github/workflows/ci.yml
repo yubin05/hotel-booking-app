@@ -57,5 +57,21 @@ jobs:
 
       - run: npm test
 
+      # 스키마 태스크를 RDS처럼 빈 DB에 두 번 실행. 배포마다 돌기 때문에 두 번째도 건너뛰기만 하고 0으로 끝나야 함
+      - name: 스키마 태스크 두 번 실행
+        env:
+          DB_HOST: 127.0.0.1
+          DB_ADMIN_USER: root
+          DB_ADMIN_PASSWORD: ci-root-pw
+          DB_APP_PASSWORD: ci-app-pw
+        run: |
+          mysql -h 127.0.0.1 -uroot -pci-root-pw -e "CREATE DATABASE hotel_booking"
+          node dist/src/migrate.js
+          node dist/src/migrate.js
+          # 앱 계정은 테이블을 지울 수 없어야 함 (읽기 · 쓰기만)
+          if mysql -h 127.0.0.1 -uapp -pci-app-pw hotel_booking -e "DROP TABLE reviews"; then
+            echo "앱 계정에 DROP 권한이 있음" >&2; exit 1
+          fi
+
       - name: 이미지 빌드 확인
         run: docker build -t hotel-booking-app .
