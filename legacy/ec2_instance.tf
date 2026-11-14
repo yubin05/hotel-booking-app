@@ -46,8 +46,8 @@ resource "aws_instance" "db_instance_1" {
     #!/bin/bash
     set -euxo pipefail
 
-    BASE=https://raw.githubusercontent.com/yubin05/hotel-booking-aws-v2/main/app/db
-    SCRIPT=https://raw.githubusercontent.com/yubin05/hotel-booking-aws-v2/main/scripts
+    BASE=https://raw.githubusercontent.com/yubin05/hotel-booking-app/main/db
+    SCRIPT=https://raw.githubusercontent.com/yubin05/hotel-booking-app/main/scripts
     DIR=/opt/hotel-db/initdb
 
     # NAT 준비 대기: 처음부터 apply하면 NAT와 DB가 같이 만들어져서
