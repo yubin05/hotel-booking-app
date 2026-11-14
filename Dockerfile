@@ -22,6 +22,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist/src ./dist/src
 COPY --from=web /app/public ./public
+# 스키마 태스크(dist/src/migrate.js)가 읽는 SQL. 앱 태스크와 같은 이미지를 명령만 바꿔 씀
+COPY db/*.sql ./db/
 USER node
 EXPOSE 3000
 CMD ["node", "dist/src/server.js"]

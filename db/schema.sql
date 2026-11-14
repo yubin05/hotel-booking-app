@@ -1,8 +1,9 @@
 -- 숙박 예약 스키마 (MySQL 8.4)
 -- 저장 프로시저·트리거·뷰는 쓰지 않는다: 덤프·복원 이식성 (docs/02-architecture.md 데이터 모델 원칙)
 -- 시각(DATETIME)은 모두 UTC로 저장한다
+-- 스키마 태스크(src/migrate.ts)가 배포마다 실행하므로 이미 있는 테이블은 건너뛴다. 이미 있는 테이블의 구조는 바꾸지 않으니, 컬럼 변경이 필요해지면 버전 기록 방식이나 도구로 바꾼다
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id            CHAR(36)     NOT NULL PRIMARY KEY,
   email         VARCHAR(255) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
@@ -13,7 +14,7 @@ CREATE TABLE users (
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE TABLE hotels (
+CREATE TABLE IF NOT EXISTS hotels (
   id             VARCHAR(36)  NOT NULL PRIMARY KEY,
   host_id        VARCHAR(36)  NOT NULL,
   name           VARCHAR(255) NOT NULL,
@@ -35,7 +36,7 @@ CREATE TABLE hotels (
   updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE TABLE rooms (
+CREATE TABLE IF NOT EXISTS rooms (
   id              VARCHAR(36)   NOT NULL PRIMARY KEY,
   hotel_id        VARCHAR(36)   NOT NULL,
   name            VARCHAR(255)  NOT NULL,
@@ -53,7 +54,7 @@ CREATE TABLE rooms (
 );
 
 -- 정액 할인 쿠폰. 발급은 issued_count < quantity 조건부 UPDATE로 하고, CHECK 제약으로 한 번 더 막는다
-CREATE TABLE coupons (
+CREATE TABLE IF NOT EXISTS coupons (
   id              CHAR(36)      NOT NULL PRIMARY KEY,
   name            VARCHAR(100)  NOT NULL,
   discount_amount DECIMAL(10,2) NOT NULL,
@@ -69,7 +70,7 @@ CREATE TABLE coupons (
 
 -- 사용자가 받은 쿠폰. (쿠폰, 사용자) 유니크로 1인 1매
 -- used_booking_id에는 외래 키를 걸지 않는다: bookings.user_coupon_id와 서로 참조하는 순환을 피하려고
-CREATE TABLE user_coupons (
+CREATE TABLE IF NOT EXISTS user_coupons (
   id              CHAR(36) NOT NULL PRIMARY KEY,
   coupon_id       CHAR(36) NOT NULL,
   user_id         CHAR(36) NOT NULL,
@@ -82,7 +83,7 @@ CREATE TABLE user_coupons (
   CONSTRAINT fk_user_coupons_user FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
-CREATE TABLE bookings (
+CREATE TABLE IF NOT EXISTS bookings (
   id               CHAR(36)      NOT NULL PRIMARY KEY, -- UUIDv7 (만든 순서대로 정렬됨)
   user_id          CHAR(36)      NOT NULL,
   room_id          VARCHAR(36)   NOT NULL,
@@ -106,7 +107,7 @@ CREATE TABLE bookings (
 
 -- 확정된 예약이 차지한 객실·날짜. 기본 키가 겹치면 DB가 거부하므로 이중 예약이 생기지 않는다.
 -- 예약 상태에서 파생되는 잠금용 테이블이라 변경·취소 때 행을 지운다 (이력 대조는 bookings 기준).
-CREATE TABLE booking_nights (
+CREATE TABLE IF NOT EXISTS booking_nights (
   room_id    VARCHAR(36) NOT NULL,
   stay_date  DATE        NOT NULL,
   booking_id CHAR(36)    NOT NULL,
@@ -116,7 +117,7 @@ CREATE TABLE booking_nights (
 );
 
 -- 이용을 마친 예약당 리뷰 1개. 저장할 때 숙소의 rating·review_count를 다시 계산한다
-CREATE TABLE reviews (
+CREATE TABLE IF NOT EXISTS reviews (
   id         CHAR(36)     NOT NULL PRIMARY KEY,
   booking_id CHAR(36)     NOT NULL UNIQUE,
   user_id    CHAR(36)     NOT NULL,
