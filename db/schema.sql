@@ -133,3 +133,11 @@ CREATE TABLE IF NOT EXISTS reviews (
   CONSTRAINT fk_reviews_user FOREIGN KEY (user_id) REFERENCES users (id),
   CONSTRAINT fk_reviews_hotel FOREIGN KEY (hotel_id) REFERENCES hotels (id)
 );
+
+-- 로그인 실패 기록 (인프라 ADR-054): 입력한 이메일마다 센다. 없는 계정도 똑같이 세고 잠가서 잠금 응답으로 회원인지 드러나지 않게 (OWASP)
+CREATE TABLE IF NOT EXISTS login_failures (
+  email           VARCHAR(255) NOT NULL PRIMARY KEY,
+  fail_count      INT          NOT NULL,
+  first_failed_at DATETIME     NOT NULL,
+  locked_until    DATETIME
+);
