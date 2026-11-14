@@ -75,3 +75,13 @@ jobs:
 
       - name: 이미지 빌드 확인
         run: docker build -t hotel-booking-app .
+
+  # main push에서 테스트를 통과하면 배포. 배포 단계는 인프라팀이 제공한 cd.yml (인프라 ADR-046)
+  # 같은 실행 안에서 이어지므로 PR은 배포되지 않음. 불러낸 워크플로가 OIDC 토큰을 받으려면 여기서 id-token을 줘야 함
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/cd.yml
+    permissions:
+      id-token: write
+      contents: read

@@ -1,28 +1,33 @@
 name: CD
 
 # 인프라팀(yubin05/hotel-booking-aws-v2)이 작성해 제공한 배포 워크플로. ADR 번호는 그 저장소의 docs/04-decisions.md
-
-# 지금은 "빌드 → 서울 ECR push"까지만 (ADR-040). 스키마 태스크 · 서비스 교체(ADR-031, ADR-039)는 ALB · ECS 덩어리 뒤에 붙인다
-# 손으로 실행: Actions 탭 → CD → Run workflow (main 브랜치만 배포 역할을 받을 수 있음, ADR-026)
+# 빌드 → 서울 ECR push → (서울 인프라가 떠 있으면) 레시피 개정 → 스키마 태스크 → 앱 롤링 교체 (ADR-031 · ADR-039 · ADR-046)
+# CI가 main push에서 테스트를 통과하면 이 파일을 불러냄(ci.yml의 deploy). 손으로도 실행 가능: Actions → CD → Run workflow
+# main 브랜치에서 돈 실행만 배포 역할을 받을 수 있음 (ADR-026 · ADR-043)
 on:
+  workflow_call:
   workflow_dispatch:
 
 permissions:
-  id-token: write # OIDC 토큰(신분증) 요청
+  id-token: write # OIDC 토큰(신분증) 요청. 불러내는 ci.yml에서도 같은 권한을 줘야 함
   contents: read
-
-# 같은 커밋을 두 번 동시에 올리지 않게
-concurrency:
-  group: cd-${{ github.ref }}
-  cancel-in-progress: false
 
 env:
   AWS_REGION: ap-northeast-2
-  ECR_REPOSITORY: hotel-booking-aws-v2 # ADR-030
+  ECR_REPOSITORY: hotel-booking-aws-v2 # 이름은 ADR-030
+  CLUSTER: hotel-booking-aws-v2
+  SERVICE: app
+  APP_FAMILY: hotel-booking-aws-v2-app
+  MIGRATE_FAMILY: hotel-booking-aws-v2-migrate
+  LOG_GROUP: /ecs/hotel-booking-aws-v2
 
 jobs:
-  build-push:
+  deploy:
     runs-on: ubuntu-latest
+    # 배포는 한 번에 하나씩. 뒤에 온 배포는 앞 배포가 끝날 때까지 기다림
+    concurrency:
+      group: cd-deploy
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5
 
@@ -39,25 +44,99 @@ jobs:
         id: tag
         run: |
           TAG="${GITHUB_SHA::7}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "IMAGE=${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:$TAG" >> "$GITHUB_ENV"
           FOUND=$(aws ecr batch-get-image --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$TAG" \
             --query 'length(images)' --output text)
           echo "exists=$([ "$FOUND" = "1" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: 이미지 빌드 · push
         if: steps.tag.outputs.exists != 'true'
-        env:
-          IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }}
         run: |
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
+          echo "이미지 올림: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 결과
-        env:
-          IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }}
+      # 서울은 비용 때문에 평소 내려 두므로, 없으면 이미지만 올리고 성공으로 끝냄. 권한 오류 같은 다른 실패는 숨기지 않음
+      - name: 서울에 앱 서비스가 떠 있나
+        id: infra
         run: |
-          if [ "${{ steps.tag.outputs.exists }}" = "true" ]; then
-            echo "이미 있어 건너뜀: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          if STATUS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+              --query 'services[0].status' --output text 2> err.txt); then
+            :
+          elif grep -q ClusterNotFoundException err.txt; then
+            STATUS=NONE
           else
-            echo "올림: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
+            cat err.txt >&2
+            exit 1
           fi
+          if [ "$STATUS" = "ACTIVE" ]; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up=false" >> "$GITHUB_OUTPUT"
+            echo "서울 인프라 없음(서비스 상태 $STATUS) → 이미지만 올리고 끝" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # 최신 레시피(설정은 Terraform이 정함)를 읽어 이미지 번호만 바꾼 개정판을 등록 (ADR-039)
+      - name: 레시피 개정
+        if: steps.infra.outputs.up == 'true'
+        run: |
+          register() {
+            aws ecs describe-task-definition --task-definition "$1" --query taskDefinition --output json > current.json
+            # 등록할 때 넣으면 거부되는 읽기 전용 칸은 지움
+            jq --arg IMAGE "$IMAGE" '.containerDefinitions |= map(.image = $IMAGE)
+              | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
+                    .registeredAt, .registeredBy, .deregisteredAt)' current.json > next.json
+            aws ecs register-task-definition --cli-input-json file://next.json \
+              --query taskDefinition.taskDefinitionArn --output text
+          }
+          APP_ARN=$(register "$APP_FAMILY")
+          MIGRATE_ARN=$(register "$MIGRATE_FAMILY")
+          echo "APP_ARN=$APP_ARN" >> "$GITHUB_ENV"
+          echo "MIGRATE_ARN=$MIGRATE_ARN" >> "$GITHUB_ENV"
+          echo "레시피 개정: ${APP_ARN##*/}, ${MIGRATE_ARN##*/}" >> "$GITHUB_STEP_SUMMARY"
+
+      # 스키마 태스크를 1번 실행하고 끝나기를 기다림. 종료 코드가 0이 아니면 앱을 바꾸지 않고 멈춤 (ADR-031)
+      - name: 스키마 태스크 (migrate)
+        if: steps.infra.outputs.up == 'true'
+        run: |
+          # 앱 서비스가 쓰는 서브넷 · 보안 그룹을 그대로 씀 (같은 자리여야 DB에 닿음)
+          NET=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0].networkConfiguration' --output json)
+          TASK=$(aws ecs run-task --cluster "$CLUSTER" --task-definition "$MIGRATE_ARN" --launch-type FARGATE \
+            --network-configuration "$NET" --query 'tasks[0].taskArn' --output text)
+          case "$TASK" in arn:*) ;; *) echo "스키마 태스크를 띄우지 못함" >&2; exit 1 ;; esac
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK"
+          EXIT=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          REASON=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --query 'tasks[0].stoppedReason' --output text)
+
+          # 개발팀이 실패 원인을 직접 보게 로그를 화면에 남김 (ADR-046). migrate.ts는 비밀번호 · SQL을 찍지 않음
+          {
+            echo '스키마 태스크 로그:'
+            echo '```'
+            aws logs get-log-events --log-group-name "$LOG_GROUP" --log-stream-name "migrate/migrate/${TASK##*/}" \
+              --query 'events[].message' --output text | tr '\t' '\n' || echo '(로그 없음: 컨테이너가 시작 전에 멈췄을 수 있음)'
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          if [ "$EXIT" != "0" ]; then
+            echo "스키마 태스크 실패(종료 코드 $EXIT, $REASON) → 앱 교체 안 함" | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            exit 1
+          fi
+
+      # 앱을 새 레시피로 롤링 교체하고 안정될 때까지 기다림.
+      # 새 버전이 계속 죽으면 서킷 브레이커가 옛 버전으로 되돌리는데 그것도 "안정"이라, 끝난 뒤 레시피를 다시 확인
+      - name: 앱 롤링 교체
+        if: steps.infra.outputs.up == 'true'
+        run: |
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$APP_ARN" \
+            --query 'service.taskDefinition' --output text
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+          NOW=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0].taskDefinition' --output text)
+          if [ "$NOW" != "$APP_ARN" ]; then
+            echo "앱 교체 실패: 서비스가 ${NOW##*/}로 되돌아감(서킷 브레이커 롤백)" | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            exit 1
+          fi
+          # 2단계 완료 기준: 커밋부터 반영까지 시간 (03-plan)
+          echo "배포 완료: ${APP_ARN##*/}, 커밋부터 반영까지 $(( $(date +%s) - $(git log -1 --format=%ct) ))초" >> "$GITHUB_STEP_SUMMARY"
