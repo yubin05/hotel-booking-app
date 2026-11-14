@@ -1,7 +1,8 @@
--- 부하 실험 전에 데이터를 소규모 회사 수준으로 채운다 (docs/07-experiments.md 공통 준비)
--- 숙소 1,000 / 객실 5,000 / 회원 2만 / 지난 예약 10만 / 리뷰 5만. 시드(숙소 10개)만으로는 표 전체를 훑는 쿼리도 공짜처럼 빨라서 성능 숫자를 믿을 수 없다
+-- 운영 규모 데이터: 고객사가 운영 중인 DB에 쌓여 있다고 가정한 양 (소규모 회사 수준)
+-- 숙소 1,000 / 객실 5,000 / 회원 2만 / 지난 예약 10만 / 리뷰 5만. 운영 환경(legacy · AWS v2)에는 항상 넣고, 트래픽 · 성능 · 비용 판단의 기준으로 쓴다.
+-- 개발 PC · CI 테스트는 seed.sql만 쓴다 (속도, 운영 데이터를 개발 환경에 두지 않는 관례). 시드(숙소 10개)만으로는 표 전체를 훑는 쿼리도 공짜처럼 빨라서 성능 숫자를 믿을 수 없다
 -- 실행 (Git Bash, 저장소 루트, docker compose down -v && up 직후):
---   docker compose exec -T db mysql -uroot -plocal-root-pw --default-character-set=utf8mb4 hotel_booking < scripts/seed-volume.sql
+--   docker compose exec -T db mysql -uroot -plocal-root-pw --default-character-set=utf8mb4 hotel_booking < db/seed-volume.sql
 -- 만든 행의 id는 모두 'vol-'로 시작한다. 두 번 넣으면 첫 INSERT에서 중복 키로 멈추므로 다시 넣으려면 down -v부터
 
 SET NAMES utf8mb4;
