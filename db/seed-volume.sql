@@ -25,9 +25,9 @@ INSERT INTO vol_city VALUES
 INSERT INTO hotels (id, host_id, name, description, category, address, city, region, amenities, images)
 SELECT CONCAT('vol-h-', LPAD(s.n, 4, '0')), '11111111-0000-0000-0000-000000000002',
        CONCAT(c.city, ' ', ELT(1 + s.n % 10, '호텔', '호텔', '호텔', '모텔', '모텔', '펜션', '펜션', '게스트하우스', '리조트', '캠핑'), ' ', s.n),
-       '부하 실험용 숙소입니다.',
+       CONCAT(c.city, ' 여행에 편안한 숙소입니다.'),
        ELT(1 + s.n % 10, 'hotel', 'hotel', 'hotel', 'motel', 'motel', 'pension', 'pension', 'guesthouse', 'resort', 'camping'),
-       CONCAT(c.city, ' 실험로 ', s.n), c.city, c.region,
+       CONCAT(c.city, ' 중앙로 ', s.n), c.city, c.region,
        ELT(1 + s.n % 4, '["와이파이","주차장"]', '["와이파이","주차장","조식포함"]',
            '["와이파이","수영장","피트니스센터","레스토랑"]', '["와이파이","바베큐","주차장"]'),
        JSON_ARRAY(JSON_EXTRACT(@imgs, CONCAT('$[', s.n % 11, ']')), JSON_EXTRACT(@imgs, CONCAT('$[', (s.n + 4) % 11, ']')))
@@ -37,7 +37,7 @@ SELECT CONCAT('vol-h-', LPAD(s.n, 4, '0')), '11111111-0000-0000-0000-00000000000
 -- 숙소마다 객실 5개 (도미토리는 1인)
 INSERT INTO rooms (id, hotel_id, name, description, type, capacity, price_per_night, discount_rate, images, amenities)
 SELECT CONCAT('vol-h-', LPAD(s.n, 4, '0'), '-r', k.k), CONCAT('vol-h-', LPAD(s.n, 4, '0')),
-       ELT(k.k, '스탠다드', '디럭스', '스위트', '패밀리', '도미토리'), '부하 실험용 객실입니다.',
+       ELT(k.k, '스탠다드', '디럭스', '스위트', '패밀리', '도미토리'), '편안하게 쉴 수 있는 객실입니다.',
        ELT(k.k, 'standard', 'deluxe', 'suite', 'family', 'dormitory'), ELT(k.k, 2, 2, 4, 4, 1),
        50000 + ((s.n * 37 + k.k * 11) % 250) * 1000, (s.n % 4) * 5,
        JSON_ARRAY(JSON_EXTRACT(@imgs, CONCAT('$[', (s.n + k.k) % 11, ']'))), '[]'
@@ -46,7 +46,7 @@ SELECT CONCAT('vol-h-', LPAD(s.n, 4, '0'), '-r', k.k), CONCAT('vol-h-', LPAD(s.n
 
 -- 로그인할 수 없는 회원 (비밀번호 해시가 '!'). 지난 예약·리뷰의 주인
 INSERT INTO users (id, email, password_hash, name)
-SELECT CONCAT('vol-u-', LPAD(n, 5, '0')), CONCAT('vol-', n, '@sample.local'), '!', CONCAT('실험회원', n)
+SELECT CONCAT('vol-u-', LPAD(n, 5, '0')), CONCAT('vol-', n, '@sample.local'), '!', CONCAT('회원', n)
   FROM vol_seq WHERE n <= 20000;
 
 -- 지난 예약: 객실마다 20건을 18일 칸에 하나씩 (시작 0~6일 밀림, 1~3박) → 같은 객실끼리 겹치지 않는다.
@@ -63,7 +63,7 @@ SELECT CONCAT('vol-b-', LPAD(b.n, 6, '0')), CONCAT('vol-u-', LPAD(1 + b.n % 2000
 -- 리뷰: 지난 예약의 절반. 별점은 4~5점이 많게
 INSERT INTO reviews (id, booking_id, user_id, hotel_id, rating, title, content, created_at)
 SELECT CONCAT('vol-v-', SUBSTRING(b.id, 7)), b.id, b.user_id, r.hotel_id,
-       ELT(1 + CRC32(b.id) % 10, 5, 5, 5, 4, 4, 4, 4, 3, 2, 1), '숙박 후기', '부하 실험용 리뷰입니다.',
+       ELT(1 + CRC32(b.id) % 10, 5, 5, 5, 4, 4, 4, 4, 3, 2, 1), '숙박 후기', '깨끗하고 편안하게 잘 쉬었어요.',
        b.check_out_date + INTERVAL 1 DAY
   FROM bookings b JOIN rooms r ON r.id = b.room_id
  WHERE b.id LIKE 'vol-b-%' AND CAST(SUBSTRING(b.id, 7) AS UNSIGNED) % 2 = 0;
