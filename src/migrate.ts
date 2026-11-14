@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import mysql from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2/promise';
+import { dbTls } from './db-tls';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -25,6 +26,7 @@ async function main() {
     password: required('DB_ADMIN_PASSWORD'),
     database,
     charset: 'utf8mb4',
+    ssl: dbTls,
     multipleStatements: true, // 이미지 안의 SQL 파일을 통째로 보냄. 밖에서 들어온 문자열은 아래 ? 자리로만 넣음
   });
 

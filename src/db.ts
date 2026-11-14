@@ -2,6 +2,7 @@ import mysql from 'mysql2/promise';
 import type { PoolConnection as CorePoolConnection } from 'mysql2';
 import type { Pool, PoolConnection } from 'mysql2/promise';
 import { config } from './config';
+import { dbTls } from './db-tls';
 import { HttpError } from './errors';
 
 const options = {
@@ -13,6 +14,7 @@ const options = {
   timezone: '+00:00',
   dateStrings: true, // DATE를 'YYYY-MM-DD' 문자열로 받아 시간대 변환 오류를 피한다
   charset: 'utf8mb4',
+  ssl: dbTls,
 };
 
 // DB 작업 하나(빈 연결 기다리기 + 쿼리)의 시간 상한 (TS-09). DB가 답하지 않을 때(멈춤·장애 조치) 요청이 끝없이 매달리지 않게 한다.
