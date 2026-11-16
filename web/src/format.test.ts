@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { changeDeadline, defaultStay, formatCountdown, nightsBetween, priceBreakdown, toYmd, won } from './format';
+import { changeDeadline, defaultStay, FALLBACK_IMAGE, formatCountdown, nightsBetween, photoAttrs, priceBreakdown, toYmd, won } from './format';
 
 describe('format', () => {
+  it('우리 사진 주소는 640 · 1200 WebP 후보를 주고, 다른 주소와 빈 값은 그대로 · 대체 그림', () => {
+    expect(photoAttrs('https://img.hotel.vundle34.cloud/hotels/0001/1')).toEqual({
+      src: 'https://img.hotel.vundle34.cloud/hotels/0001/1/1200.webp',
+      srcSet:
+        'https://img.hotel.vundle34.cloud/hotels/0001/1/640.webp 640w, https://img.hotel.vundle34.cloud/hotels/0001/1/1200.webp 1200w',
+    });
+    expect(photoAttrs('https://example.com/a.jpg')).toEqual({ src: 'https://example.com/a.jpg' });
+    expect(photoAttrs(undefined)).toEqual({ src: FALLBACK_IMAGE });
+  });
+
   it('금액을 원 단위로 표시한다', () => {
     expect(won(1234567)).toBe('1,234,567원');
     expect(won('89000.00')).toBe('89,000원');

@@ -14,6 +14,15 @@ export const FALLBACK_IMAGE =
   'data:image/svg+xml;utf8,' +
   encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 3"><rect width="4" height="3" fill="#e2e8f0"/></svg>');
 
+// 사진 CDN (v2 ADR-055). DB에는 크기를 뺀 주소가 있고, 640 · 1200 WebP 중 칸에 맞는 것을 브라우저가 고른다
+export const PHOTO_ORIGIN = 'https://img.hotel.vundle34.cloud/';
+
+export function photoAttrs(src?: string): { src: string; srcSet?: string } {
+  if (!src) return { src: FALLBACK_IMAGE };
+  if (!src.startsWith(PHOTO_ORIGIN)) return { src }; // 다른 곳의 주소는 그대로
+  return { src: `${src}/1200.webp`, srcSet: `${src}/640.webp 640w, ${src}/1200.webp 1200w` };
+}
+
 export function won(amount: number | string): string {
   return `${Math.round(Number(amount)).toLocaleString('ko-KR')}원`;
 }

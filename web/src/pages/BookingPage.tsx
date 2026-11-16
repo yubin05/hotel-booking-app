@@ -87,7 +87,8 @@ export function BookingPage() {
         <div className="space-y-4">
           <section className="card flex gap-4 p-4">
             <div className="size-24 shrink-0 overflow-hidden rounded-xl bg-slate-100">
-              <HotelImage src={room.images[0] ?? h.images[0]} />
+              {/* 96px 정사각형 칸이라 가로 사진은 높이에 맞춰 144px 폭 */}
+              <HotelImage src={room.images[0] ?? h.images[0]} sizes="144px" />
             </div>
             <div className="min-w-0">
               <Link to={`/hotels/${h.id}`} className="font-bold hover:underline">

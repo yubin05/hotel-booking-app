@@ -168,18 +168,19 @@ function Gallery({ images }: { images: string[] }) {
   if (shown.length <= 1) {
     return (
       <div className="aspect-[16/9] overflow-hidden rounded-2xl bg-slate-100 md:aspect-[21/9]">
-        <HotelImage src={shown[0]} />
+        <HotelImage src={shown[0]} sizes="(min-width: 1152px) 1120px, 100vw" />
       </div>
     );
   }
   return (
     <div className="grid h-64 grid-cols-4 grid-rows-2 gap-2 overflow-hidden rounded-2xl md:h-96">
+      {/* 높이가 고정(md부터 384px)이라 가로 사진은 높이에 맞춰 커짐: 큰 칸 384 × 1.5 = 576px, 작은 칸 188 × 1.5 = 282px */}
       <div className="col-span-4 row-span-2 bg-slate-100 sm:col-span-2">
-        <HotelImage src={shown[0]} />
+        <HotelImage src={shown[0]} sizes="(min-width: 1152px) 576px, (min-width: 640px) 50vw, 100vw" />
       </div>
       {shown.slice(1).map((src, i) => (
         <div key={`${src}-${i}`} className="hidden bg-slate-100 sm:block">
-          <HotelImage src={src} />
+          <HotelImage src={src} sizes="(min-width: 1152px) 282px, 25vw" />
         </div>
       ))}
     </div>
@@ -192,7 +193,7 @@ function RoomCard({ room, nights, guests, onBook }: { room: Room; nights: number
   return (
     <article className="card flex flex-col gap-4 overflow-hidden p-3 sm:flex-row">
       <div className="aspect-[4/3] overflow-hidden rounded-xl bg-slate-100 sm:w-48 sm:shrink-0">
-        <HotelImage src={room.images[0]} />
+        <HotelImage src={room.images[0]} sizes="(min-width: 640px) 192px, 100vw" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col">
         <h3 className="font-bold">{room.name}</h3>

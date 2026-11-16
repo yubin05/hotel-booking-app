@@ -1,16 +1,22 @@
 import { Link } from 'react-router';
 import type { Hotel } from '../api';
-import { CATEGORY_LABEL, FALLBACK_IMAGE, won } from '../format';
+import { CATEGORY_LABEL, FALLBACK_IMAGE, photoAttrs, won } from '../format';
 import { RatingBadge } from './ui';
 
-export function HotelImage({ src, className = '' }: { src?: string; className?: string }) {
+// sizes: 이 칸이 화면에서 차지하는 폭. 브라우저가 칸 폭 × 화면 배율로 640 · 1200 중 하나만 받는다
+export function HotelImage({ src, sizes, className = '' }: { src?: string; sizes: string; className?: string }) {
+  const photo = photoAttrs(src);
   return (
     <img
-      src={src || FALLBACK_IMAGE}
+      src={photo.src}
+      srcSet={photo.srcSet}
+      sizes={photo.srcSet ? sizes : undefined}
       alt=""
       loading="lazy"
       onError={(e) => {
-        if (e.currentTarget.src !== FALLBACK_IMAGE) e.currentTarget.src = FALLBACK_IMAGE;
+        if (e.currentTarget.src === FALLBACK_IMAGE) return;
+        e.currentTarget.removeAttribute('srcset'); // srcset이 남아 있으면 src를 바꿔도 깨진 사진을 계속 보여 줌
+        e.currentTarget.src = FALLBACK_IMAGE;
       }}
       className={`size-full object-cover ${className}`}
     />
@@ -27,7 +33,12 @@ export function HotelCard({ hotel, query, layout = 'grid' }: { hotel: Hotel; que
       className={`group card overflow-hidden transition hover:-translate-y-0.5 hover:shadow-lg ${row ? 'flex' : 'block'}`}
     >
       <div className={`relative shrink-0 overflow-hidden bg-slate-100 ${row ? 'w-32 sm:w-60' : 'aspect-[4/3]'}`}>
-        <HotelImage src={hotel.images[0]} className="transition duration-500 group-hover:scale-105" />
+        <HotelImage
+          src={hotel.images[0]}
+          // 목록(row): 휴대폰 128px · sm부터 240px / 홈(grid): 1 · 2 · 4열, 최대 폭 1152px 안에서
+          sizes={row ? '(min-width: 640px) 240px, 128px' : '(min-width: 1024px) 270px, (min-width: 640px) 50vw, 100vw'}
+          className="transition duration-500 group-hover:scale-105"
+        />
         <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-xs font-semibold text-slate-700 backdrop-blur">
           {CATEGORY_LABEL[hotel.category] ?? hotel.category}
         </span>

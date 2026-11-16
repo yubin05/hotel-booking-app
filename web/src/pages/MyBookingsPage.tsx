@@ -100,7 +100,7 @@ function BookingItem(props: { booking: Booking; tab: Tab; onChange: () => void; 
     <li className="card overflow-hidden">
       <div className="flex gap-4 p-4">
         <Link to={`/hotels/${b.hotel_id}`} className="size-24 shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:size-28">
-          <HotelImage src={b.hotel_images[0]} />
+          <HotelImage src={b.hotel_images[0]} sizes="(min-width: 640px) 168px, 144px" />
         </Link>
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
