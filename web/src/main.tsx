@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router';
 import { AuthProvider } from './auth';
 import { Layout } from './components/Layout';
+import { AdminPage } from './pages/AdminPage';
 import { BookingPage } from './pages/BookingPage';
 import { CouponsPage } from './pages/CouponsPage';
 import { HomePage } from './pages/HomePage';
@@ -52,6 +53,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="me/bookings" element={<MyBookingsPage />} />
               <Route path="me/points" element={<PointsPage />} />
               <Route path="host" element={<HostPage />} />
+              <Route path="admin" element={<AdminPage />} />
               <Route path="coupons" element={<CouponsPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>

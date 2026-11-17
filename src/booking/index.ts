@@ -121,6 +121,14 @@ function assertChangeable(booking: LockedBooking): void {
   }
 }
 
+// 취소: 행은 지우지 않고 상태만 바꾼 뒤 날짜 잠금을 풀고 쿠폰 · 적립금을 돌려준다. 예약 행을 잠근 채 부른다 (관리자 사건 복구도 씀)
+export async function cancelBooking(conn: PoolConnection, bookingId: string, sessionId: string | null): Promise<void> {
+  await conn.query("UPDATE bookings SET status = 'cancelled' WHERE id = ?", [bookingId]);
+  await conn.query('DELETE FROM booking_nights WHERE booking_id = ?', [bookingId]);
+  await releaseCoupon(conn, bookingId);
+  await refundPoints(conn, bookingId, sessionId);
+}
+
 export const bookingRouter = Router();
 
 bookingRouter.use(authenticate);
@@ -290,10 +298,7 @@ bookingRouter.delete('/:id', async (req, res) => {
   await withTransaction(async (conn) => {
     const booking = await lockOwnBooking(conn, String(req.params.id), req.user!.userId);
     assertChangeable(booking);
-    await conn.query("UPDATE bookings SET status = 'cancelled' WHERE id = ?", [booking.id]);
-    await conn.query('DELETE FROM booking_nights WHERE booking_id = ?', [booking.id]);
-    await releaseCoupon(conn, booking.id);
-    await refundPoints(conn, booking.id, req.user!.sessionId);
+    await cancelBooking(conn, booking.id, req.user!.sessionId);
   });
   res.json({ success: true, message: '예약이 취소되었습니다.' });
 });

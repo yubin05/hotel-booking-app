@@ -62,43 +62,67 @@ export async function earnPoints(
   return amount;
 }
 
-// 예약 취소 · 변경: 이 예약에서 아직 되돌리지 않은 사용 줄마다 '환원' 줄을 쓴다. 예약 행을 잠근 채 불러야 한다
-export async function refundPoints(conn: PoolConnection, bookingId: string, sessionId: string | null): Promise<void> {
+// 아직 되돌리지 않은 사용 줄마다 되돌림 줄(환원 · 복구)을 쓴다. reverses_id가 유니크라 같은 사용을 두 번 되돌릴 수 없다
+async function reverseUses(
+  conn: PoolConnection,
+  by: 'booking_id' | 'session_id',
+  value: string,
+  type: 'refund' | 'restore',
+  sessionId: string | null,
+): Promise<{ booking_id: string; amount: number }[]> {
   const [uses] = await conn.query<RowDataPacket[]>(
-    `SELECT u.id, u.user_id, u.amount
+    `SELECT u.id, u.user_id, u.amount, u.booking_id
        FROM point_transactions u LEFT JOIN point_transactions r ON r.reverses_id = u.id
-      WHERE u.booking_id = ? AND u.type = 'use' AND r.id IS NULL`,
-    [bookingId],
+      WHERE u.${by} = ? AND u.type = 'use' AND r.id IS NULL`,
+    [value],
   );
   for (const use of uses) {
     await conn.query(
       `INSERT INTO point_transactions (id, user_id, type, amount, booking_id, session_id, reverses_id)
-       VALUES (?, ?, 'refund', ?, ?, ?, ?)`,
-      [uuidv7(), use.user_id, -use.amount, bookingId, sessionId, use.id],
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [uuidv7(), use.user_id, type, -use.amount, use.booking_id, sessionId, use.id],
     );
   }
+  return uses.map((u) => ({ booking_id: u.booking_id, amount: -u.amount }));
+}
+
+// 예약 취소 · 변경: 이 예약에 쓴 적립금을 '환원'. 예약 행을 잠근 채 불러야 한다
+export async function refundPoints(conn: PoolConnection, bookingId: string, sessionId: string | null): Promise<void> {
+  await reverseUses(conn, 'booking_id', bookingId, 'refund', sessionId);
+}
+
+// 관리자 사건 복구: 공격자 세션이 쓴 적립금을 '복구'. 관련 예약 행을 잠근 채 불러야 한다 (손님의 취소와 겹치지 않게)
+// shortcut: session_id에 색인이 없어 내역 전체를 훑는다. 사건 때만 쓰는 기능이라 두고, 느려지면 (session_id) 색인
+export function restoreSessionPoints(conn: PoolConnection, attackerSessionId: string, adminSessionId: string | null) {
+  return reverseUses(conn, 'session_id', attackerSessionId, 'restore', adminSessionId);
+}
+
+// 잔액과 최근 내역. 손님 화면과 관리자 화면이 같이 쓴다
+// shortcut: 최근 limit줄만 보여 준다. 더 오래된 내역이 필요해지면 쪽 나누기를 붙인다
+export async function pointHistory(userId: string, limit: number) {
+  const [[{ balance }]] = await pool.query<RowDataPacket[]>(
+    'SELECT COALESCE(SUM(amount), 0) AS balance FROM point_transactions WHERE user_id = ?',
+    [userId],
+  );
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT pt.id, pt.type, pt.amount, pt.booking_id, pt.session_id, pt.created_at,
+            EXISTS (SELECT 1 FROM point_transactions r WHERE r.reverses_id = pt.id) AS reversed,
+            b.status AS booking_status, h.name AS hotel_name
+       FROM point_transactions pt
+       LEFT JOIN bookings b ON b.id = pt.booking_id
+       LEFT JOIN rooms r ON r.id = b.room_id
+       LEFT JOIN hotels h ON h.id = r.hotel_id
+      WHERE pt.user_id = ? ORDER BY pt.id DESC LIMIT ?`,
+    [userId, limit],
+  );
+  return {
+    balance: Number(balance),
+    transactions: rows.map((t) => ({ ...t, reversed: Boolean(t.reversed), created_at: utcIso(t.created_at) })),
+  };
 }
 
 export const pointRouter = Router();
 
 pointRouter.get('/', authenticate, async (req, res) => {
-  const userId = req.user!.userId;
-  const [[{ balance }]] = await pool.query<RowDataPacket[]>(
-    'SELECT COALESCE(SUM(amount), 0) AS balance FROM point_transactions WHERE user_id = ?',
-    [userId],
-  );
-  // shortcut: 최근 50줄만 보여 준다. 더 오래된 내역이 필요해지면 쪽 나누기를 붙인다
-  const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT pt.id, pt.type, pt.amount, pt.booking_id, pt.created_at, h.name AS hotel_name
-       FROM point_transactions pt
-       LEFT JOIN bookings b ON b.id = pt.booking_id
-       LEFT JOIN rooms r ON r.id = b.room_id
-       LEFT JOIN hotels h ON h.id = r.hotel_id
-      WHERE pt.user_id = ? ORDER BY pt.id DESC LIMIT 50`,
-    [userId],
-  );
-  res.json({
-    success: true,
-    data: { balance: Number(balance), transactions: rows.map((t) => ({ ...t, created_at: utcIso(t.created_at) })) },
-  });
+  res.json({ success: true, data: await pointHistory(req.user!.userId, 50) });
 });

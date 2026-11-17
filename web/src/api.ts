@@ -100,8 +100,16 @@ export interface PointTransaction {
   type: 'earn' | 'use' | 'refund' | 'restore';
   amount: number; // 사용만 -
   booking_id: string | null;
+  booking_status: Booking['status'] | null;
   hotel_name: string | null;
+  session_id: string | null; // 이 줄을 만든 로그인 세션
+  reversed: boolean; // 사용 줄이 환원 · 복구로 되돌려졌는지
   created_at: string;
+}
+
+export interface AdminUserView {
+  user: { id: string; email: string; name: string; phone: string | null; role: string; created_at: string };
+  points: Points;
 }
 
 export interface Points {

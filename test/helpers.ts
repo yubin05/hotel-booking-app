@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before } from 'node:test';
+import jwt from 'jsonwebtoken';
 import { listen } from '../src/app';
 import { couponPool, pool } from '../src/db';
 
@@ -39,6 +40,16 @@ export function useServer(): void {
   after(async () => {
     server.close();
     await Promise.all([pool.end(), couponPool.end()]);
+  });
+}
+
+// 호스트 · 관리자 계정은 배포 환경에서 migrate가 만든다. 테스트에서는 같은 비밀값으로 토큰을 직접 만든다
+export function staffToken(userId: string, role: 'host' | 'admin'): string {
+  return jwt.sign({ email: 'staff@test.local', role }, process.env.JWT_SECRET!, {
+    subject: userId,
+    jwtid: randomUUID(),
+    expiresIn: '1h',
+    algorithm: 'HS256',
   });
 }
 

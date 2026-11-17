@@ -1,4 +1,4 @@
-import { Building2, CalendarCheck, Coins, LogOut, Server, Ticket } from 'lucide-react';
+import { Building2, CalendarCheck, Coins, LogOut, Server, ShieldCheck, Ticket } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
 import { Link, NavLink, Outlet } from 'react-router';
 import { servedByStore } from '../api';
@@ -58,6 +58,12 @@ export function Layout() {
               <NavLink to="/host" className={navClass}>
                 <Building2 size={17} aria-hidden /> <span className="hidden sm:inline">내 숙소</span>
                 <span className="sr-only sm:hidden">내 숙소</span>
+              </NavLink>
+            )}
+            {user?.role === 'admin' && (
+              <NavLink to="/admin" className={navClass}>
+                <ShieldCheck size={17} aria-hidden /> <span className="hidden sm:inline">관리자</span>
+                <span className="sr-only sm:hidden">관리자</span>
               </NavLink>
             )}
             {user ? (

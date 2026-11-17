@@ -1,6 +1,7 @@
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import path from 'node:path';
+import { adminRouter } from './admin';
 import { authRouter } from './auth';
 import { bookingRouter } from './booking';
 import { couponRouter } from './coupon';
@@ -43,6 +44,7 @@ app.use('/api/bookings', bookingRouter);
 app.use('/api/coupons', couponRouter);
 app.use('/api/points', pointRouter);
 app.use('/api/host', hostRouter);
+app.use('/api/admin', adminRouter);
 app.use('/api/reviews', reviewRouter);
 app.use('/api', (_req, res) => {
   res.status(404).json({ success: false, message: '없는 API입니다.' });

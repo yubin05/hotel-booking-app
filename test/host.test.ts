@@ -1,4 +1,4 @@
-import { book, call, ctx, newUser, pool, randomDays, useServer } from './helpers';
+import { book, call, ctx, newUser, pool, randomDays, staffToken, useServer } from './helpers';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
@@ -8,19 +8,9 @@ import { kstToday } from '../src/time';
 
 useServer();
 
-// 호스트 계정은 migrate가 만든다(배포 환경). 여기서는 같은 비밀값으로 호스트 토큰을 직접 만든다
-function tokenFor(userId: string, role: string): string {
-  return jwt.sign({ email: 'staff@test.local', role }, process.env.JWT_SECRET!, {
-    subject: userId,
-    jwtid: randomUUID(),
-    expiresIn: '1h',
-    algorithm: 'HS256',
-  });
-}
-
 async function hostToken(): Promise<string> {
   const [[hotel]] = await pool.query<RowDataPacket[]>('SELECT host_id FROM hotels WHERE id = ?', [ctx.hotelId]);
-  return tokenFor(hotel.host_id, 'host');
+  return staffToken(hotel.host_id, 'host');
 }
 
 // 오늘 체크인 예약은 다른 테스트 · 반복 실행과 날짜가 겹치므로 날짜 잠금 행 없이 DB에 직접 넣는다
@@ -57,7 +47,7 @@ test('호스트는 내 숙소 예약만 손님 이름과 함께 보고, 남의 �
     assert.equal(typeof b.guest_name, 'string');
   }
 
-  const otherHost = tokenFor(randomUUID(), 'host');
+  const otherHost = staffToken(randomUUID(), 'host');
   assert.equal((await call('POST', `/host/bookings/${created.body.data.id}/complete`, { token: otherHost })).status, 404);
 });
 
