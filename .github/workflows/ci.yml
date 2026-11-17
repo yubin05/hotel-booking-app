@@ -64,10 +64,12 @@ jobs:
           DB_ADMIN_USER: root
           DB_ADMIN_PASSWORD: ci-root-pw
           DB_APP_PASSWORD: ci-app-pw
+          HOST1_PASSWORD: ci-host-pw # 호스트 계정 하나만 넣어 "있으면 만듦 · 없으면 건너뜀"을 둘 다 지나게 함
         run: |
           mysql -h 127.0.0.1 -uroot -pci-root-pw -e "CREATE DATABASE hotel_booking"
           node dist/src/migrate.js
           node dist/src/migrate.js
+          test "$(mysql -h 127.0.0.1 -uapp -pci-app-pw hotel_booking -N -e "SELECT role FROM users WHERE email = 'host1@spongetrip.local'")" = host
           # 앱 계정은 테이블을 지울 수 없어야 함 (읽기 · 쓰기만)
           if mysql -h 127.0.0.1 -uapp -pci-app-pw hotel_booking -e "DROP TABLE reviews"; then
             echo "앱 계정에 DROP 권한이 있음" >&2; exit 1
