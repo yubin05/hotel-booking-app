@@ -25,6 +25,8 @@ docker compose up -d --build   # MySQL(호텔·객실 시드 포함) + 앱
 npm ci && npm test             # 테스트는 같은 MySQL의 테스트 전용 DB(hotel_booking_test)를 사용
 ```
 
+결제 · 알림(토스페이먼츠 테스트 결제, SES 메일, 카카오톡 "나에게 보내기")을 실제로 시험하려면 `.env.example`을 `.env`로 복사해 키를 채운 뒤 다시 올립니다. 키가 없으면 그 기능만 꺼지고(결제 없이 바로 확정, 메일은 제목만 로그, 카카오 버튼 숨김) 나머지는 그대로 돕니다. 설계 결정은 [docs/decisions.md](docs/decisions.md)에 있습니다.
+
 브라우저에서 http://localhost:3000 을 열면 화면이 나옵니다. 화면만 고칠 때는 `cd web && npm ci && npm run dev`로 개발 서버(5173)를 띄우면 API 요청은 3000번 앱으로 넘어갑니다.
 
 ## CI/CD (GitHub Actions)
