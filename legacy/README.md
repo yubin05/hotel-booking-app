@@ -1,9 +1,9 @@
 # 이전 환경(legacy) 올리기 (새 PC 기준)
 
-고객사가 IDC에서 운영하던 환경(As-Is)을 서울 리전에 같은 모양으로 만든 것입니다. 앱을 띄워 브라우저로 확인한 뒤 지우는 순서입니다. 설계 근거는 인프라 저장소의 [ADR-016](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/docs/04-decisions.md#adr-016) · [ADR-021](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/docs/04-decisions.md#adr-021)에 있습니다.
+고객사가 IDC에서 운영하던 환경(As-Is)을 서울 리전에 같은 모양으로 만든 것입니다. 앱을 띄워 브라우저로 확인한 뒤 지우는 순서입니다. 설계 근거는 인프라 저장소의 [ADR-016](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/docs/07-experiments.md#adr-016) · [ADR-021](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/docs/07-experiments.md#adr-021)에 있습니다.
 
 - 만드는 것(17개): VPC · 서브넷 · NAT 인스턴스, 웹+앱 EC2(퍼블릭 서브넷), MySQL EC2(프라이빗 서브넷), 보안 그룹 2개, 키 페어. 서버 3대 모두 t3.micro
-- 부하 시험 날만: 부하 발생기 EC2(퍼블릭 서브넷) + 보안 그룹 → 19개. `-var is_load_test=true`로 켜고, 변수 없이 `terraform apply`하면 발생기만 지웁니다([ADR-023](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/docs/04-decisions.md#adr-023)). 발생기는 인프라팀(이관 수행사)이 이관 전 기준선을 재려고 이 환경 안에 띄우는 측정 장비입니다. 시험 순서는 인프라 저장소의 [load/README.md](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/load/README.md)에 있습니다
+- 부하 시험 날만: 부하 발생기 EC2(퍼블릭 서브넷) + 보안 그룹 → 19개. `-var is_load_test=true`로 켜고, 변수 없이 `terraform apply`하면 발생기만 지웁니다([ADR-023](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/docs/07-experiments.md#adr-023)). 발생기는 인프라팀(이관 수행사)이 이관 전 기준선을 재려고 이 환경 안에 띄우는 측정 장비입니다. 시험 순서는 인프라 저장소의 [load/README.md](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/load/README.md)에 있습니다
 - 비용: 켜 둔 동안 시간당 약 $0.049. 발생기를 켜면 약 $0.018 추가(t3.micro일 때). **작업이 끝나면 반드시 `terraform destroy`**
 
 ## 처음 한 번 (새 PC 준비)

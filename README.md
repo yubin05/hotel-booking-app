@@ -42,5 +42,5 @@ npm ci && npm test             # 테스트는 같은 MySQL의 테스트 전용 D
 
 비밀번호는 공개하지 않습니다. 시연이 필요하면 요청해 주세요. 일반 손님 계정은 가입 화면에서 바로 만들 수 있습니다.
 
-포트폴리오 시연용 고정 계정입니다. 실제로 서비스한다면 숙소 주인은 직접 가입한 뒤 숙소 확인을 받고, 운영사 직원은 회사 SSO로 로그인합니다([인프라 ADR-060](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/docs/04-decisions.md#adr-060)).
+포트폴리오 시연용 고정 계정입니다. 실제로 서비스한다면 숙소 주인은 직접 가입한 뒤 숙소 확인을 받고, 운영사 직원은 회사 SSO로 로그인합니다([인프라 ADR-060](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/docs/03-plan.md#adr-060)).
 </details>
