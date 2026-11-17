@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import type { RowDataPacket } from 'mysql2';
 import { config } from '../config';
 import { isDuplicateKey, pool } from '../db';
 import { HttpError } from '../errors';
 import { uuidv7 } from '../uuidv7';
+import { hashPassword, verifyPassword } from './password';
 
 export interface AuthUser {
   userId: string;
@@ -22,29 +22,7 @@ declare global {
   }
 }
 
-// OWASP 권장과 같은 강도의 scrypt 설정(N=2^15, r=8, p=3). 해시 1번에 메모리 약 32MiB
-const SCRYPT = { N: 2 ** 15, r: 8, p: 3, maxmem: 64 * 1024 * 1024 };
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function scryptKey(password: string, salt: Buffer): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    scrypt(password, salt, 64, SCRYPT, (err, key) => (err ? reject(err) : resolve(key)));
-  });
-}
-
-async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16);
-  const key = await scryptKey(password, salt);
-  return `scrypt$${salt.toString('base64')}$${key.toString('base64')}`;
-}
-
-async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [scheme, salt, key] = stored.split('$');
-  if (scheme !== 'scrypt' || !salt || !key) return false;
-  const expected = Buffer.from(key, 'base64');
-  const actual = await scryptKey(password, Buffer.from(salt, 'base64'));
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
 
 function issueToken(user: { id: string; email: string; role: string }): string {
   return jwt.sign({ email: user.email, role: user.role }, config.jwtSecret, {
