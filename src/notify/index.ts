@@ -2,6 +2,7 @@ import { SendEmailCommand, SESv2Client } from '@aws-sdk/client-sesv2';
 import type { RowDataPacket } from 'mysql2';
 import { config } from '../config';
 import { pool } from '../db';
+import { sendKakaoMemo } from '../kakao';
 
 // 예약 확정 알림 (인프라 ADR-037, docs/decisions.md APP-002): 이메일(SES)과 카카오톡 "나에게 보내기".
 // 확정 응답을 먼저 돌려준 뒤 보내고, 실패해도 예약은 그대로 둔다(로그만). 발송은 이 모듈 한 곳에서 채널을 갈아 끼운다
@@ -41,7 +42,7 @@ async function sendEmail(n: BookingNotice): Promise<void> {
 }
 
 // 테스트가 채널을 바꿔 끼울 수 있게 객체로 둔다
-export const channels: Record<string, (n: BookingNotice) => Promise<void>> = { email: sendEmail };
+export const channels: Record<string, (n: BookingNotice) => Promise<void>> = { email: sendEmail, kakao: sendKakaoMemo };
 
 async function deliver(bookingId: string): Promise<void> {
   const [[b]] = await pool.query<RowDataPacket[]>(

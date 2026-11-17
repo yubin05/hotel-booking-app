@@ -4,6 +4,7 @@ import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router';
 import { AuthProvider } from './auth';
+import { KakaoCallbackPage } from './components/KakaoConnect';
 import { Layout } from './components/Layout';
 import { AdminPage } from './pages/AdminPage';
 import { BookingPage } from './pages/BookingPage';
@@ -57,6 +58,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="admin" element={<AdminPage />} />
               <Route path="payments/success" element={<PaymentSuccessPage />} />
               <Route path="payments/fail" element={<PaymentFailPage />} />
+              <Route path="kakao/callback" element={<KakaoCallbackPage />} />
               <Route path="coupons" element={<CouponsPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>

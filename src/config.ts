@@ -21,6 +21,14 @@ export const config = {
     from: process.env.MAIL_FROM ?? '',
     region: process.env.SES_REGION || 'ap-northeast-2',
   },
+  // 카카오톡 "나에게 보내기"(카카오 개발자 앱의 REST API 키). 키가 없으면 연결 버튼을 숨긴다
+  kakao: {
+    restApiKey: process.env.KAKAO_REST_API_KEY ?? '',
+    clientSecret: process.env.KAKAO_CLIENT_SECRET ?? '',
+    redirectUri: process.env.KAKAO_REDIRECT_URI || `${process.env.APP_URL || 'http://localhost:3000'}/kakao/callback`,
+    authBase: process.env.KAKAO_AUTH_BASE || 'https://kauth.kakao.com',
+    apiBase: process.env.KAKAO_API_BASE || 'https://kapi.kakao.com',
+  },
   // 데모 결제(토스페이먼츠 테스트 키). 시크릿 키가 없으면 결제 없이 바로 확정한다(키를 넣기 전의 AWS · 이관 부하 시험과 같은 동작).
   // 요청마다 읽으므로 테스트가 값을 바꿀 수 있다
   toss: {

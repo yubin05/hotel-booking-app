@@ -168,6 +168,17 @@ CREATE TABLE IF NOT EXISTS payments (
   CONSTRAINT fk_payments_booking FOREIGN KEY (booking_id) REFERENCES bookings (id)
 );
 
+-- 카카오톡 "나에게 보내기" 연결 (docs/decisions.md APP-003): 손님이 카카오 계정을 연결하고 메시지 전송에 동의하면
+-- 예약 확정을 본인 카톡(나와의 채팅방)으로 보낸다. 접근 토큰은 약 12시간 유효하고, 만료되면 다시 연결한다(갱신 토큰은 저장하지 않음)
+CREATE TABLE IF NOT EXISTS kakao_links (
+  user_id           CHAR(36)     NOT NULL PRIMARY KEY,
+  access_token      VARCHAR(500) NOT NULL,
+  access_expires_at DATETIME     NOT NULL,
+  created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_kakao_links_user FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
 -- 로그인 실패 기록 (인프라 ADR-054): 입력한 이메일마다 센다. 없는 계정도 똑같이 세고 잠가서 잠금 응답으로 회원인지 드러나지 않게 (OWASP)
 CREATE TABLE IF NOT EXISTS login_failures (
   email           VARCHAR(255) NOT NULL PRIMARY KEY,

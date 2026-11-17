@@ -8,6 +8,7 @@ import { DateRangeField } from '../components/DateRangeField';
 import { Dialog } from '../components/Dialog';
 import { GuestsField } from '../components/GuestsField';
 import { HotelImage } from '../components/HotelCard';
+import { KakaoConnect } from '../components/KakaoConnect';
 import { EmptyState, ErrorBox, Field, Loading, LoginRequired, PageTitle } from '../components/ui';
 import { changeDeadline, nightsBetween, shortDate, toYmd, won } from '../format';
 import { startPayment } from '../payment';
@@ -47,6 +48,7 @@ export function MyBookingsPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 pt-6">
       <PageTitle>내 예약</PageTitle>
+      <KakaoConnect />
       <div role="tablist" aria-label="예약 구분" className="mb-4 flex gap-2">
         {TABS.map(([value, label]) => (
           <button
