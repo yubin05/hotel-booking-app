@@ -8,6 +8,7 @@ import { couponRouter } from './coupon';
 import { pool } from './db';
 import { HttpError } from './errors';
 import { hostRouter } from './host';
+import { metricsMiddleware } from './metrics';
 import { hotelRouter } from './hotel';
 import { kakaoRouter } from './kakao';
 import { paymentRouter } from './payments';
@@ -23,6 +24,8 @@ const publicDir = path.join(__dirname, '../../public'); // dist/src 기준으로
 // https://expressjs.com/en/guide/behind-proxies.html
 app.set('trust proxy', 2);
 app.use(express.json({ limit: '10kb' }));
+// 관제 화면용 1초 지표(ADR-061). 켤 때만 붙인다: 꺼진 채로 모으면 아무도 비우지 않아 메모리가 계속 는다
+if (process.env.METRICS_EMF === '1') app.use('/api', metricsMiddleware);
 app.use('/api', (_req, res, next) => {
   res.set('X-Served-By', getServedBy());
   next();
