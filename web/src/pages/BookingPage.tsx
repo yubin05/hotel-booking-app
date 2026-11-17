@@ -7,6 +7,7 @@ import { GuestsField } from '../components/GuestsField';
 import { HotelImage } from '../components/HotelCard';
 import { ErrorBox, Loading, LoginRequired, PageTitle } from '../components/ui';
 import { defaultStay, nightsBetween, priceBreakdown, won } from '../format';
+import { startPayment } from '../payment';
 import { useToast } from '../toast';
 
 export function BookingPage() {
@@ -64,8 +65,8 @@ export function BookingPage() {
   async function submit() {
     setBusy(true);
     try {
-      await withRetry(() =>
-        api('/bookings', {
+      const created = await withRetry(() =>
+        api<{ id: string; payment: { order_id: string; amount: number } | null }>('/bookings', {
           method: 'POST',
           idempotencyKey,
           body: {
@@ -79,6 +80,20 @@ export function BookingPage() {
           },
         }),
       );
+      if (created.payment) {
+        // 객실은 10분 동안 잡아 둔 상태. 결제창으로 넘어가고, 창을 닫아도 내 예약에서 다시 결제할 수 있다
+        try {
+          await startPayment(
+            { orderId: created.payment.order_id, amount: created.payment.amount, orderName: `${h.name} ${room!.name}` },
+            user!,
+          );
+          return;
+        } catch (err) {
+          toast(`예약은 10분 동안 잡아 두었어요. 내 예약에서 결제해 주세요. (${(err as Error).message})`, 'error');
+          navigate('/me/bookings');
+          return;
+        }
+      }
       toast('예약이 완료되었습니다!', 'success');
       navigate('/me/bookings');
     } catch (err) {

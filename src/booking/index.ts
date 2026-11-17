@@ -8,7 +8,8 @@ import { HttpError } from '../errors';
 import { securityLog } from '../log';
 import { findBookableRoom, nightlyPrice } from '../hotel';
 import { lockPointsOwner, refundPoints, usePoints } from '../points';
-import { kstToday } from '../time';
+import { createPendingPayment, paymentsEnabled } from '../payments';
+import { kstToday, utcIso } from '../time';
 import { uuidv7 } from '../uuidv7';
 
 const DAY_MS = 86_400_000;
@@ -27,15 +28,22 @@ const BOOKING_VIEW = `
          b.status, b.special_requests, b.created_at, b.updated_at,
          r.name AS room_name, r.type AS room_type,
          h.id AS hotel_id, h.name AS hotel_name, h.address AS hotel_address, h.images AS hotel_images,
-         h.check_in_time, rv.id AS review_id
+         h.check_in_time, rv.id AS review_id,
+         p.status AS payment_status, p.order_id AS payment_order_id, p.amount AS payment_amount,
+         p.expires_at AS payment_expires_at
     FROM bookings b
     JOIN rooms r ON r.id = b.room_id
     JOIN hotels h ON h.id = r.hotel_id
-    LEFT JOIN reviews rv ON rv.booking_id = b.id`;
+    LEFT JOIN reviews rv ON rv.booking_id = b.id
+    LEFT JOIN payments p ON p.booking_id = b.id`;
 
 // 화면이 리뷰 쓰기 버튼을 그릴 수 있게: 취소하지 않았고, 체크아웃했고, 아직 리뷰가 없을 때
 function withReviewFlag(row: RowDataPacket) {
-  return { ...row, can_review: row.status !== 'cancelled' && !row.review_id && row.check_out_date <= kstToday() };
+  return {
+    ...row,
+    payment_expires_at: row.payment_expires_at ? utcIso(row.payment_expires_at) : null,
+    can_review: row.status !== 'cancelled' && !row.review_id && row.check_out_date <= kstToday(),
+  };
 }
 
 interface LockedBooking {
@@ -127,6 +135,8 @@ export async function cancelBooking(conn: PoolConnection, bookingId: string, ses
   await conn.query('DELETE FROM booking_nights WHERE booking_id = ?', [bookingId]);
   await releaseCoupon(conn, bookingId);
   await refundPoints(conn, bookingId, sessionId);
+  // shortcut: 테스트 키라 실제 돈이 오가지 않아 토스 결제 취소(환불) API는 부르지 않고 상태만 바꾼다. 실결제로 바꾸면 환불 API를 붙인다
+  await conn.query("UPDATE payments SET status = 'cancelled' WHERE booking_id = ? AND status IN ('pending', 'paid')", [bookingId]);
 }
 
 export const bookingRouter = Router();
@@ -178,6 +188,8 @@ bookingRouter.post('/', async (req, res) => {
     if (user_coupon_id) await markCouponUsed(conn, user_coupon_id, id);
     // 잔액 확인은 멱등키 중복 확인(INSERT) 뒤에: 이미 처리된 요청을 다시 보내면 잔액이 줄어 있어도 처음 예약을 돌려줘야 한다
     if (points > 0) await usePoints(conn, userId, points, id, req.user!.sessionId);
+    // 낼 돈이 있으면 결제 대기(10분). 결제가 꺼져 있거나 쿠폰 · 적립금으로 0원이면 바로 확정
+    const payment = paymentsEnabled() && Math.round(total) > 0 ? await createPendingPayment(conn, id, total) : null;
     return {
       id,
       total_price: total,
@@ -185,6 +197,7 @@ bookingRouter.post('/', async (req, res) => {
       points_used: points,
       nights: nights.length,
       status: 'confirmed',
+      payment,
     };
   });
 
@@ -265,6 +278,15 @@ bookingRouter.patch('/:id', async (req, res) => {
     const discount = Math.min(Number(booking.coupon_amount ?? 0), subtotal);
     const used = Number(booking.points_used);
     const points = Math.min(used, Math.floor(subtotal - discount));
+    // shortcut: 데모 결제는 부분 환불 · 추가 결제를 만들지 않아, 결제 중이거나 끝난 예약은 결제 금액이 그대로인 변경만 받는다
+    // (같은 박수로 날짜 옮기기 · 인원 바꾸기). 금액이 바뀌는 변경이 필요해지면 차액 결제 · 부분 취소 API를 붙인다
+    const [[payment]] = await conn.query<RowDataPacket[]>(
+      "SELECT amount FROM payments WHERE booking_id = ? AND status IN ('pending', 'paid') FOR UPDATE",
+      [booking.id],
+    );
+    if (payment && Math.round(subtotal - discount - points) !== payment.amount) {
+      throw new HttpError(409, '결제 중이거나 결제한 예약은 금액이 바뀌는 변경을 할 수 없습니다. 취소 후 다시 예약해 주세요.');
+    }
 
     await conn.query('DELETE FROM booking_nights WHERE booking_id = ?', [booking.id]);
     await reserveNights(conn, booking.room_id, booking.id, nights);

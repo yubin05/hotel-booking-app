@@ -152,6 +152,22 @@ CREATE TABLE IF NOT EXISTS point_transactions (
   CONSTRAINT fk_point_transactions_reverses FOREIGN KEY (reverses_id) REFERENCES point_transactions (id)
 );
 
+-- 데모 결제(토스페이먼츠 테스트 키, docs/decisions.md APP-001): 예약마다 결제 1건. 예약하면 객실을 잡아 두고 10분 안에 결제해야 확정.
+-- 예약 테이블에 결제 상태를 두지 않는 이유: 이관(덤프 복원) 때 이미 있는 테이블의 구조는 바뀌지 않는다
+CREATE TABLE IF NOT EXISTS payments (
+  booking_id  CHAR(36)     NOT NULL PRIMARY KEY,
+  order_id    CHAR(36)     NOT NULL UNIQUE,                 -- 토스에 넘기는 주문 번호
+  amount      INT          NOT NULL,                        -- 원
+  status      ENUM('pending','paid','expired','cancelled') NOT NULL DEFAULT 'pending',
+  payment_key VARCHAR(200),                                 -- 토스가 승인 때 준 결제 키
+  expires_at  DATETIME     NOT NULL,                        -- 결제 대기 마감
+  paid_at     DATETIME,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_payments_expiry (status, expires_at),             -- 만료 정리 작업이 찾는 순서
+  CONSTRAINT fk_payments_booking FOREIGN KEY (booking_id) REFERENCES bookings (id)
+);
+
 -- 로그인 실패 기록 (인프라 ADR-054): 입력한 이메일마다 센다. 없는 계정도 똑같이 세고 잠가서 잠금 응답으로 회원인지 드러나지 않게 (OWASP)
 CREATE TABLE IF NOT EXISTS login_failures (
   email           VARCHAR(255) NOT NULL PRIMARY KEY,

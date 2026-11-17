@@ -14,4 +14,13 @@ export const config = {
     name: process.env.DB_NAME || 'hotel_booking',
   },
   jwtSecret: required('JWT_SECRET'),
+  // 메일 · 카카오톡 링크가 가리킬 사이트 주소
+  appUrl: process.env.APP_URL || 'http://localhost:3000',
+  // 데모 결제(토스페이먼츠 테스트 키). 시크릿 키가 없으면 결제 없이 바로 확정한다(키를 넣기 전의 AWS · 이관 부하 시험과 같은 동작).
+  // 요청마다 읽으므로 테스트가 값을 바꿀 수 있다
+  toss: {
+    secretKey: process.env.TOSS_SECRET_KEY ?? '',
+    clientKey: process.env.TOSS_CLIENT_KEY ?? '',
+    apiBase: process.env.TOSS_API_BASE || 'https://api.tosspayments.com',
+  },
 };

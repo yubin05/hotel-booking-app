@@ -72,6 +72,11 @@ export interface Booking {
   check_in_time: string;
   review_id: string | null;
   can_review: boolean;
+  // 데모 결제. 결제가 꺼져 있었거나 0원이면 null
+  payment_status: 'pending' | 'paid' | 'expired' | 'cancelled' | null;
+  payment_order_id: string | null;
+  payment_amount: number | null;
+  payment_expires_at: string | null;
 }
 
 export interface Coupon {

@@ -10,6 +10,7 @@ import { GuestsField } from '../components/GuestsField';
 import { HotelImage } from '../components/HotelCard';
 import { EmptyState, ErrorBox, Field, Loading, LoginRequired, PageTitle } from '../components/ui';
 import { changeDeadline, nightsBetween, shortDate, toYmd, won } from '../format';
+import { startPayment } from '../payment';
 import { useToast } from '../toast';
 
 type Tab = 'upcoming' | 'past' | 'cancelled';
@@ -94,7 +95,10 @@ function BookingItem(props: { booking: Booking; tab: Tab; onChange: () => void; 
   const { booking: b, tab } = props;
   const deadline = changeDeadline(b.check_in_date, b.check_in_time);
   const changeable = tab === 'upcoming' && Date.now() < deadline.getTime();
-  const status = { upcoming: ['예약 확정', 'bg-teal-50 text-teal-700'], past: ['이용 완료', 'bg-slate-100 text-slate-600'], cancelled: ['취소됨', 'bg-rose-50 text-rose-600'] }[tab];
+  const pending = tab === 'upcoming' && b.payment_status === 'pending';
+  const status = pending
+    ? ['결제 대기', 'bg-amber-50 text-amber-700']
+    : { upcoming: ['예약 확정', 'bg-teal-50 text-teal-700'], past: ['이용 완료', 'bg-slate-100 text-slate-600'], cancelled: ['취소됨', 'bg-rose-50 text-rose-600'] }[tab];
 
   return (
     <li className="card overflow-hidden">
@@ -118,9 +122,11 @@ function BookingItem(props: { booking: Booking; tab: Tab; onChange: () => void; 
           <p className="mt-1 text-sm">
             결제 금액 <strong>{won(b.total_price)}</strong>
             {Number(b.discount_amount) > 0 && <span className="ml-1 text-orange-600">(쿠폰 -{won(b.discount_amount)})</span>}
+            {b.payment_status === 'paid' && <span className="ml-1 text-teal-700">· 결제 완료</span>}
           </p>
         </div>
       </div>
+      {pending && <PayNow booking={b} />}
       {(tab === 'upcoming' || b.can_review || b.review_id) && (
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-4 py-3">
           {tab === 'upcoming' &&
@@ -289,5 +295,33 @@ function ReviewDialog({ booking, onClose, onDone }: DialogProps) {
         </button>
       </form>
     </Dialog>
+  );
+}
+
+// 결제 대기(10분) 예약: 결제창을 다시 띄운다. 마감이 지나면 서버의 정리 작업이 예약을 취소한다 (서버 APP-001)
+function PayNow({ booking: b }: { booking: Booking }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  async function pay() {
+    setBusy(true);
+    try {
+      await startPayment({ orderId: b.payment_order_id!, amount: b.payment_amount!, orderName: `${b.hotel_name} ${b.room_name}` }, user!);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-amber-100 bg-amber-50/60 px-4 py-3">
+      <p className="mr-auto text-xs text-amber-800">
+        {format(new Date(b.payment_expires_at!), 'HH:mm')}까지 결제하지 않으면 예약이 자동으로 취소돼요.
+      </p>
+      <button type="button" className="btn-primary px-3 py-1.5 text-sm" disabled={busy} onClick={pay}>
+        {busy ? '결제창 여는 중…' : `${won(b.payment_amount!)} 결제하기`}
+      </button>
+    </div>
   );
 }

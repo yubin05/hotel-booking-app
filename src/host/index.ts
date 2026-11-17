@@ -61,6 +61,9 @@ hostRouter.post('/bookings/:id/complete', async (req, res) => {
     if (booking.status !== 'confirmed') throw new HttpError(409, '확정된 예약만 숙박 완료로 바꿀 수 있습니다.');
     // 털린 호스트 계정이 미래 예약을 완료로 바꿔 적립금을 찍어내지 못하게 (ADR-058)
     if (booking.check_in_date > kstToday()) throw new HttpError(400, '체크인 날짜부터 숙박 완료로 바꿀 수 있습니다.');
+    // 돈을 내지 않은 예약에 적립금이 쌓이지 않게 (데모 결제, APP-001)
+    const [[unpaid]] = await conn.query<RowDataPacket[]>("SELECT 1 FROM payments WHERE booking_id = ? AND status = 'pending'", [booking.id]);
+    if (unpaid) throw new HttpError(409, '결제 대기 중인 예약은 숙박 완료로 바꿀 수 없습니다.');
     // shortcut: 조기 체크아웃이어도 남은 날짜 잠금(booking_nights)은 풀지 않는다. 빈 방을 다시 팔아야 하면 오늘 이후 행을 지운다
     await conn.query("UPDATE bookings SET status = 'completed' WHERE id = ?", [booking.id]);
     const earned = await earnPoints(conn, booking.user_id, Number(booking.total_price), booking.id, req.user!.sessionId);

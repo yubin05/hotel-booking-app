@@ -12,6 +12,7 @@ import { HomePage } from './pages/HomePage';
 import { HostPage } from './pages/HostPage';
 import { HotelPage } from './pages/HotelPage';
 import { MyBookingsPage } from './pages/MyBookingsPage';
+import { PaymentFailPage, PaymentSuccessPage } from './pages/PaymentResultPage';
 import { PointsPage } from './pages/PointsPage';
 import { SearchPage } from './pages/SearchPage';
 import { ToastProvider } from './toast';
@@ -54,6 +55,8 @@ createRoot(document.getElementById('root')!).render(
               <Route path="me/points" element={<PointsPage />} />
               <Route path="host" element={<HostPage />} />
               <Route path="admin" element={<AdminPage />} />
+              <Route path="payments/success" element={<PaymentSuccessPage />} />
+              <Route path="payments/fail" element={<PaymentFailPage />} />
               <Route path="coupons" element={<CouponsPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>

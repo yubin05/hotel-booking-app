@@ -9,6 +9,7 @@ import { pool } from './db';
 import { HttpError } from './errors';
 import { hostRouter } from './host';
 import { hotelRouter } from './hotel';
+import { paymentRouter } from './payments';
 import { pointRouter } from './points';
 import { reviewRouter } from './review';
 import { getServedBy } from './served-by';
@@ -45,6 +46,7 @@ app.use('/api/coupons', couponRouter);
 app.use('/api/points', pointRouter);
 app.use('/api/host', hostRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/payments', paymentRouter);
 app.use('/api/reviews', reviewRouter);
 app.use('/api', (_req, res) => {
   res.status(404).json({ success: false, message: '없는 API입니다.' });
