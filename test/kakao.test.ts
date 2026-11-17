@@ -21,13 +21,16 @@ const kakao = createServer((req, res) => {
       const ok = form.get('grant_type') === 'authorization_code' && form.get('client_id') === 'rest-key';
       res.writeHead(ok ? 200 : 400);
       const scope = form.get('code') === 'no-consent' ? 'profile_nickname' : 'talk_message profile_nickname';
-      res.end(JSON.stringify(ok ? { access_token: `at-${form.get('code')}`, expires_in: 43199, scope } : { error: 'invalid_grant' }));
+      const token = { access_token: `at-${form.get('code')}`, expires_in: 43199, ...(form.get('code') === 'no-scope' ? {} : { scope }) };
+      res.end(JSON.stringify(ok ? token : { error: 'invalid_grant' }));
       return;
     }
     if (req.url === '/v2/api/talk/memo/default/send') {
       memos.push({ auth: String(req.headers.authorization), template: JSON.parse(form.get('template_object') ?? '{}') });
       res.writeHead(memoStatus);
-      res.end(JSON.stringify(memoStatus === 200 ? { result_code: 0 } : { code: -401, msg: 'this access token does not exist' }));
+      // 실제 카카오 응답 모양 (2026-11-18 로컬에서 받은 403): {"msg":"insufficient scopes.","code":-402,...}
+      const failure = memoStatus === 403 ? { code: -402, msg: 'insufficient scopes.' } : { code: -401, msg: 'this access token does not exist' };
+      res.end(JSON.stringify(memoStatus === 200 ? { result_code: 0 } : failure));
       return;
     }
     res.writeHead(404);
@@ -84,21 +87,25 @@ test('다른 사용자에게 서명해 준 state로는 연결할 수 없다 (CSR
   assert.equal((await call('GET', '/kakao', { token: victim })).body.data.connected, false);
 });
 
-test('메시지 전송에 동의하지 않으면 연결하지 않는다', async () => {
+test('메시지 전송에 동의하지 않았거나 토큰에 동의 범위가 없으면 연결하지 않는다', async () => {
   const token = await newUser();
   assert.equal((await connect(token, 'no-consent')).status, 400);
+  assert.equal((await connect(token, 'no-scope')).status, 400);
   assert.equal((await call('GET', '/kakao', { token })).body.data.connected, false);
 });
 
-test('카카오가 토큰을 거절(401)하면 연결을 지워 다음부터 보내지 않는다', async (t) => {
+for (const [status, code, why] of [
+  [401, 'c3', '토큰을 거절'],
+  [403, 'c4', '메시지 동의가 없다고(-402)'],
+] as const) test(`카카오가 ${why} 답하면 연결을 지워 다음부터 보내지 않는다`, async (t) => {
   t.mock.method(console, 'error', () => {});
   const token = await newUser();
-  await connect(token, 'c3');
-  memoStatus = 401;
+  await connect(token, code);
+  memoStatus = status;
   t.after(() => (memoStatus = 200));
   const day = randomDays();
   await book(token, day(0), day(1));
-  await waitForMemo('Bearer at-c3');
+  await waitForMemo(`Bearer at-${code}`);
   for (let i = 0; i < 100 && (await call('GET', '/kakao', { token })).body.data.connected; i++) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }

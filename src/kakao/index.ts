@@ -34,13 +34,13 @@ export async function sendKakaoMemo(n: BookingNotice): Promise<void> {
     body: new URLSearchParams({ template_object: JSON.stringify(template) }),
     signal: AbortSignal.timeout(10_000),
   });
-  if (res.status === 401) {
-    // 손님이 카카오에서 연결을 끊었거나 토큰이 무효: 다음부터 시도하지 않게 연결을 지운다
+  const data = (await res.json().catch(() => ({}))) as { result_code?: number; code?: number; msg?: string };
+  // 토큰 무효(401) · 메시지 동의 없음(-402): 다시 시도해도 안 되므로 연결을 지워 화면에 "알림 받기"가 다시 보이게 한다
+  if (res.status === 401 || data.code === -402) {
     await pool.query('DELETE FROM kakao_links WHERE user_id = ?', [n.userId]);
-    throw new Error('카카오 토큰이 무효라 연결을 지움');
+    throw new Error(`카카오 연결을 지움 (HTTP ${res.status}, code ${data.code}: ${data.msg})`);
   }
-  const data = (await res.json().catch(() => ({}))) as { result_code?: number };
-  if (!res.ok || data.result_code !== 0) throw new Error(`카카오톡 발송 실패 (HTTP ${res.status})`);
+  if (!res.ok || data.result_code !== 0) throw new Error(`카카오톡 발송 실패 (HTTP ${res.status}, code ${data.code}: ${data.msg})`);
 }
 
 export const kakaoRouter = Router();
@@ -96,7 +96,8 @@ kakaoRouter.post('/callback', async (req, res) => {
   });
   const token = (await tokenRes.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; scope?: string };
   if (!tokenRes.ok || !token.access_token || !token.expires_in) throw new HttpError(400, '카카오 연결에 실패했습니다.');
-  if (token.scope && !token.scope.split(/[ ,]/).includes('talk_message')) {
+  // 동의 범위가 응답에 없으면 동의하지 않은 것으로 본다 (2026-11-18: scope 없는 토큰으로 연결돼 발송이 -402로 막힘)
+  if (!token.scope?.split(/[ ,]/).includes('talk_message')) {
     throw new HttpError(400, '카카오톡 메시지 전송에 동의해야 알림을 받을 수 있어요.');
   }
 
