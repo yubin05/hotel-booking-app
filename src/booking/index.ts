@@ -5,7 +5,9 @@ import { authenticate } from '../auth';
 import { findCouponAmount, markCouponUsed, releaseCoupon } from '../coupon';
 import { isDuplicateKey, isMissingReference, pool, withTransaction } from '../db';
 import { HttpError } from '../errors';
+import { securityLog } from '../log';
 import { findBookableRoom, nightlyPrice } from '../hotel';
+import { lockPointsOwner, refundPoints, usePoints } from '../points';
 import { kstToday } from '../time';
 import { uuidv7 } from '../uuidv7';
 
@@ -45,6 +47,7 @@ interface LockedBooking {
   status: string;
   check_in_time: string;
   coupon_amount: string | null;
+  points_used: string;
 }
 
 function toUtcMs(date: unknown): number {
@@ -94,7 +97,10 @@ async function lockOwnBooking(conn: PoolConnection, id: string, userId: string):
   // FOR UPDATE OF b: 예약 행만 잠근다 (객실·숙소 행까지 잠그면 같은 숙소의 취소가 줄을 선다)
   const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT b.id, b.room_id, b.check_in_date, b.check_out_date, b.guests, b.status, h.check_in_time,
-            c.discount_amount AS coupon_amount
+            c.discount_amount AS coupon_amount,
+            -- 이 예약에 쓰고 아직 되돌리지 않은 적립금 (사용 -, 환원 · 복구 +)
+            (SELECT COALESCE(-SUM(pt.amount), 0) FROM point_transactions pt
+              WHERE pt.booking_id = b.id AND pt.type <> 'earn') AS points_used
        FROM bookings b
        JOIN rooms r ON r.id = b.room_id
        JOIN hotels h ON h.id = r.hotel_id
@@ -123,9 +129,10 @@ bookingRouter.post('/', async (req, res) => {
   const userId = req.user!.userId;
   const key = req.get('Idempotency-Key');
   if (!key || key.length > 100) throw new HttpError(400, 'Idempotency-Key 헤더가 필요합니다.');
-  const { room_id, check_in_date, check_out_date, guests, special_requests, user_coupon_id } = req.body ?? {};
+  const { room_id, check_in_date, check_out_date, guests, special_requests, user_coupon_id, points = 0 } = req.body ?? {};
   if (typeof room_id !== 'string') throw new HttpError(400, '객실을 선택해주세요.');
   if (user_coupon_id != null && typeof user_coupon_id !== 'string') throw new HttpError(400, '쿠폰 형식이 올바르지 않습니다.');
+  if (!Number.isSafeInteger(points) || points < 0) throw new HttpError(400, '적립금은 0 이상의 정수여야 합니다.');
   if (special_requests != null && (typeof special_requests !== 'string' || special_requests.length > 1000)) {
     throw new HttpError(400, '요청 사항은 1000자 이하여야 합니다.');
   }
@@ -133,19 +140,23 @@ bookingRouter.post('/', async (req, res) => {
   const id = uuidv7();
 
   const created = await withTransaction(async (conn) => {
+    if (points > 0) await lockPointsOwner(conn, userId);
     const room = await findBookableRoom(conn, room_id);
     if (!room) throw new HttpError(404, '객실을 찾을 수 없습니다.');
     const guestCount = parseGuests(guests, room.capacity);
     const subtotal = nightlyPrice(room) * nights.length;
     // 쿠폰 할인은 숙박 금액을 넘지 않는다
     const discount = user_coupon_id ? Math.min(await findCouponAmount(conn, user_coupon_id, userId), subtotal) : 0;
+    // 쿠폰을 먼저 빼고, 남은 결제액까지 적립금을 쓸 수 있다
+    if (points > subtotal - discount) throw new HttpError(400, '적립금은 결제 금액까지만 쓸 수 있습니다.');
+    const total = subtotal - discount - points;
     try {
       await conn.query(
         `INSERT INTO bookings (id, user_id, room_id, check_in_date, check_out_date, guests, total_price,
                                discount_amount, user_coupon_id, special_requests, idempotency_key)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          id, userId, room_id, check_in_date, check_out_date, guestCount, subtotal - discount,
+          id, userId, room_id, check_in_date, check_out_date, guestCount, total,
           discount, user_coupon_id ?? null, special_requests ?? null, key,
         ],
       );
@@ -157,10 +168,26 @@ bookingRouter.post('/', async (req, res) => {
     }
     await reserveNights(conn, room_id, id, nights);
     if (user_coupon_id) await markCouponUsed(conn, user_coupon_id, id);
-    return { id, total_price: subtotal - discount, discount_amount: discount, nights: nights.length, status: 'confirmed' };
+    // 잔액 확인은 멱등키 중복 확인(INSERT) 뒤에: 이미 처리된 요청을 다시 보내면 잔액이 줄어 있어도 처음 예약을 돌려줘야 한다
+    if (points > 0) await usePoints(conn, userId, points, id, req.user!.sessionId);
+    return {
+      id,
+      total_price: total,
+      discount_amount: discount,
+      points_used: points,
+      nights: nights.length,
+      status: 'confirmed',
+    };
   });
 
   if (created) {
+    // 남의 적립금으로 예약(시나리오 1): 낯선 IP의 로그인 세션이 적립금을 쓰는지 본다
+    securityLog('booking_created', req, {
+      booking_id: created.id,
+      total_price: created.total_price,
+      points_used: created.points_used,
+      coupon: Boolean(user_coupon_id),
+    });
     res.status(201).json({ success: true, message: '예약이 완료되었습니다.', data: created });
     return;
   }
@@ -228,21 +255,30 @@ bookingRouter.patch('/:id', async (req, res) => {
     const guests = parseGuests(req.body?.guests ?? booking.guests, room.capacity);
     const subtotal = nightlyPrice(room) * nights.length;
     const discount = Math.min(Number(booking.coupon_amount ?? 0), subtotal);
+    const used = Number(booking.points_used);
+    const points = Math.min(used, Math.floor(subtotal - discount));
 
     await conn.query('DELETE FROM booking_nights WHERE booking_id = ?', [booking.id]);
     await reserveNights(conn, booking.room_id, booking.id, nights);
+    // 숙박이 줄어 쓴 적립금이 새 결제액보다 많으면, 이 트랜잭션 안에서 전부 환원하고 결제액까지만 다시 쓴다.
+    // "취소 후 다시 예약"으로 돌리면 그 사이 다른 손님이 객실을 가져갈 수 있다. 환원액 ≥ 다시 쓰는 액이라 잔액은 줄지 않는다
+    if (points < used) {
+      await refundPoints(conn, booking.id, req.user!.sessionId);
+      if (points > 0) await usePoints(conn, req.user!.userId, points, booking.id, req.user!.sessionId);
+    }
     await conn.query(
       `UPDATE bookings SET check_in_date = ?, check_out_date = ?, guests = ?, total_price = ?, discount_amount = ?
         WHERE id = ?`,
-      [checkIn, checkOut, guests, subtotal - discount, discount, booking.id],
+      [checkIn, checkOut, guests, subtotal - discount - points, discount, booking.id],
     );
     return {
       id: booking.id,
       check_in_date: checkIn,
       check_out_date: checkOut,
       guests,
-      total_price: subtotal - discount,
+      total_price: subtotal - discount - points,
       discount_amount: discount,
+      points_used: points,
       nights: nights.length,
     };
   });
@@ -257,6 +293,7 @@ bookingRouter.delete('/:id', async (req, res) => {
     await conn.query("UPDATE bookings SET status = 'cancelled' WHERE id = ?", [booking.id]);
     await conn.query('DELETE FROM booking_nights WHERE booking_id = ?', [booking.id]);
     await releaseCoupon(conn, booking.id);
+    await refundPoints(conn, booking.id, req.user!.sessionId);
   });
   res.json({ success: true, message: '예약이 취소되었습니다.' });
 });

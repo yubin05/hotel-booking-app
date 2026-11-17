@@ -6,13 +6,19 @@ import { bookingRouter } from './booking';
 import { couponRouter } from './coupon';
 import { pool } from './db';
 import { HttpError } from './errors';
+import { hostRouter } from './host';
 import { hotelRouter } from './hotel';
+import { pointRouter } from './points';
 import { reviewRouter } from './review';
 import { getServedBy } from './served-by';
 
 export const app = express();
 const publicDir = path.join(__dirname, '../../public'); // dist/src 기준으로 app/public (React 빌드 결과)
 
+// 손님 IP(req.ip): 앞에 프록시가 CloudFront → ALB 두 단계라 X-Forwarded-For의 오른쪽 2칸까지만 믿는다. 둘 다 받은 값 끝에
+// 덧붙이므로(CloudFront 문서, ALB 기본 append), 손님이 보낸 가짜 값은 그보다 왼쪽에 남아 무시된다. 프록시 단계가 바뀌면 같이 고친다
+// https://expressjs.com/en/guide/behind-proxies.html
+app.set('trust proxy', 2);
 app.use(express.json({ limit: '10kb' }));
 app.use('/api', (_req, res, next) => {
   res.set('X-Served-By', getServedBy());
@@ -35,6 +41,8 @@ app.use('/api/auth', authRouter);
 app.use('/api/hotels', hotelRouter);
 app.use('/api/bookings', bookingRouter);
 app.use('/api/coupons', couponRouter);
+app.use('/api/points', pointRouter);
+app.use('/api/host', hostRouter);
 app.use('/api/reviews', reviewRouter);
 app.use('/api', (_req, res) => {
   res.status(404).json({ success: false, message: '없는 API입니다.' });

@@ -8,8 +8,10 @@ import { Layout } from './components/Layout';
 import { BookingPage } from './pages/BookingPage';
 import { CouponsPage } from './pages/CouponsPage';
 import { HomePage } from './pages/HomePage';
+import { HostPage } from './pages/HostPage';
 import { HotelPage } from './pages/HotelPage';
 import { MyBookingsPage } from './pages/MyBookingsPage';
+import { PointsPage } from './pages/PointsPage';
 import { SearchPage } from './pages/SearchPage';
 import { ToastProvider } from './toast';
 
@@ -48,6 +50,8 @@ createRoot(document.getElementById('root')!).render(
               <Route path="hotels/:id" element={<HotelPage />} />
               <Route path="booking" element={<BookingPage />} />
               <Route path="me/bookings" element={<MyBookingsPage />} />
+              <Route path="me/points" element={<PointsPage />} />
+              <Route path="host" element={<HostPage />} />
               <Route path="coupons" element={<CouponsPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>

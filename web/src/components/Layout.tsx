@@ -1,4 +1,4 @@
-import { CalendarCheck, LogOut, Server, Ticket } from 'lucide-react';
+import { Building2, CalendarCheck, Coins, LogOut, Server, Ticket } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
 import { Link, NavLink, Outlet } from 'react-router';
 import { servedByStore } from '../api';
@@ -50,6 +50,16 @@ export function Layout() {
               <CalendarCheck size={17} aria-hidden /> <span className="hidden sm:inline">내 예약</span>
               <span className="sr-only sm:hidden">내 예약</span>
             </NavLink>
+            <NavLink to="/me/points" className={navClass}>
+              <Coins size={17} aria-hidden /> <span className="hidden sm:inline">적립금</span>
+              <span className="sr-only sm:hidden">적립금</span>
+            </NavLink>
+            {user?.role === 'host' && (
+              <NavLink to="/host" className={navClass}>
+                <Building2 size={17} aria-hidden /> <span className="hidden sm:inline">내 숙소</span>
+                <span className="sr-only sm:hidden">내 숙소</span>
+              </NavLink>
+            )}
             {user ? (
               <div className="ml-1 flex items-center gap-1">
                 <span className="hidden max-w-24 truncate text-slate-700 md:inline">{user.name}님</span>

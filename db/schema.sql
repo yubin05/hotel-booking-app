@@ -134,6 +134,24 @@ CREATE TABLE IF NOT EXISTS reviews (
   CONSTRAINT fk_reviews_hotel FOREIGN KEY (hotel_id) REFERENCES hotels (id)
 );
 
+-- 적립금 거래 내역(원장, 인프라 ADR-058): 적립 · 사용 · 환원 · 복구를 한 줄씩 쌓고 잔액은 합계. 줄은 고치거나 지우지 않는다
+-- (누가 · 언제 · 어느 세션으로 썼는지가 사건 때 복구 금액과 범위의 근거라서). 이 테이블은 나중에 칸을 더할 수 없어 처음에 다 넣는다
+CREATE TABLE IF NOT EXISTS point_transactions (
+  id          CHAR(36) NOT NULL PRIMARY KEY,                    -- UUIDv7 (만든 순서대로 정렬됨)
+  user_id     CHAR(36) NOT NULL,
+  type        ENUM('earn','use','refund','restore') NOT NULL,   -- 적립 · 사용 · 환원(예약 취소 · 변경) · 복구(사건 대응)
+  amount      INT      NOT NULL,                                -- 원. 사용만 -, 나머지는 +
+  booking_id  CHAR(36),
+  session_id  CHAR(36),                                         -- 이 줄을 만든 로그인 세션(토큰 jti). 사건 때 공격자 세션이 쓴 줄만 골라 복구한다
+  reverses_id CHAR(36) UNIQUE,                                  -- 환원 · 복구가 되돌린 사용 줄. 유니크라 한 사용을 두 번 되돌릴 수 없다
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_point_transactions_user (user_id),
+  CONSTRAINT chk_point_transactions_sign CHECK ((type = 'use' AND amount < 0) OR (type <> 'use' AND amount > 0)),
+  CONSTRAINT fk_point_transactions_user FOREIGN KEY (user_id) REFERENCES users (id),
+  CONSTRAINT fk_point_transactions_booking FOREIGN KEY (booking_id) REFERENCES bookings (id),
+  CONSTRAINT fk_point_transactions_reverses FOREIGN KEY (reverses_id) REFERENCES point_transactions (id)
+);
+
 -- 로그인 실패 기록 (인프라 ADR-054): 입력한 이메일마다 센다. 없는 계정도 똑같이 세고 잠가서 잠금 응답으로 회원인지 드러나지 않게 (OWASP)
 CREATE TABLE IF NOT EXISTS login_failures (
   email           VARCHAR(255) NOT NULL PRIMARY KEY,

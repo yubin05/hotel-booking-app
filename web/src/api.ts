@@ -95,6 +95,37 @@ export interface MyCoupon {
   status: 'available' | 'used' | 'expired';
 }
 
+export interface PointTransaction {
+  id: string;
+  type: 'earn' | 'use' | 'refund' | 'restore';
+  amount: number; // 사용만 -
+  booking_id: string | null;
+  hotel_name: string | null;
+  created_at: string;
+}
+
+export interface Points {
+  balance: number;
+  transactions: PointTransaction[];
+}
+
+export interface HostBooking {
+  id: string;
+  check_in_date: string;
+  check_out_date: string;
+  guests: number;
+  total_price: string;
+  status: Booking['status'];
+  special_requests: string | null;
+  room_name: string;
+  hotel_id: string;
+  hotel_name: string;
+  guest_name: string;
+  guest_phone: string | null;
+  guest_email: string;
+  can_complete: boolean;
+}
+
 export interface User {
   id: string;
   email: string;

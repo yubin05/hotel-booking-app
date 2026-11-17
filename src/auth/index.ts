@@ -5,6 +5,7 @@ import type { RowDataPacket } from 'mysql2';
 import { config } from '../config';
 import { isDuplicateKey, pool } from '../db';
 import { HttpError } from '../errors';
+import { accountKey, securityLog } from '../log';
 import { uuidv7 } from '../uuidv7';
 import { hashPassword, verifyPassword } from './password';
 
@@ -12,6 +13,7 @@ export interface AuthUser {
   userId: string;
   email: string;
   role: string;
+  sessionId: string | null; // 토큰 jti. 이 기능 전에 발급한 토큰에는 없다
 }
 
 declare global {
@@ -24,9 +26,11 @@ declare global {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function issueToken(user: { id: string; email: string; role: string }): string {
+// sessionId는 토큰 jti(세션 번호): 적립금 내역 · 로그에 남겨 사건 때 공격자 세션이 한 일만 골라낸다 (인프라 ADR-058)
+function issueToken(user: { id: string; email: string; role: string }, sessionId: string): string {
   return jwt.sign({ email: user.email, role: user.role }, config.jwtSecret, {
     subject: user.id,
+    jwtid: sessionId,
     expiresIn: '1h',
     algorithm: 'HS256',
   });
@@ -37,11 +41,25 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
   if (!token) throw new HttpError(401, '인증 토큰이 필요합니다.');
   try {
     const payload = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] }) as jwt.JwtPayload;
-    req.user = { userId: String(payload.sub), email: String(payload.email), role: String(payload.role) };
-  } catch {
+    req.user = {
+      userId: String(payload.sub),
+      email: String(payload.email),
+      role: String(payload.role),
+      sessionId: payload.jti ?? null,
+    };
+  } catch (err) {
+    securityLog('token_rejected', req, { reason: (err as Error).name === 'TokenExpiredError' ? 'expired' : 'invalid' });
     throw new HttpError(401, '유효하지 않거나 만료된 토큰입니다.');
   }
   next();
+}
+
+// authenticate 뒤에 둔다. 역할은 토큰에 든 값이라 바꾸면 다시 로그인해야 반영된다
+export function requireRole(role: string) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    if (req.user?.role !== role) throw new HttpError(403, '권한이 없습니다.');
+    next();
+  };
 }
 
 export const authRouter = Router();
@@ -71,7 +89,9 @@ authRouter.post('/register', async (req, res) => {
     if (isDuplicateKey(err)) throw new HttpError(409, '이미 사용 중인 이메일입니다.');
     throw err;
   }
-  res.status(201).json({ success: true, message: '회원가입이 완료되었습니다.', data: { token: issueToken(user), user } });
+  const sessionId = uuidv7();
+  securityLog('register', req, { user_id: user.id, session_id: sessionId }); // 봇 대량 가입(시나리오 3) 탐지
+  res.status(201).json({ success: true, message: '회원가입이 완료되었습니다.', data: { token: issueToken(user, sessionId), user } });
 });
 
 // 계정 단위 로그인 실패 제한 (인프라 ADR-054). WAF는 IP 단위라 IP를 바꿔 가며 한 계정을 노리면 못 막는다
@@ -104,7 +124,10 @@ authRouter.post('/login', async (req, res) => {
     'SELECT 1 FROM login_failures WHERE email = ? AND locked_until > UTC_TIMESTAMP()',
     [key],
   );
-  if (locked[0]) throw new HttpError(429, `로그인 시도가 너무 많습니다. ${LOCK_MINUTES}분 뒤 다시 시도해주세요.`);
+  if (locked[0]) {
+    securityLog('login_failed', req, { account: accountKey(key), reason: 'locked' });
+    throw new HttpError(429, `로그인 시도가 너무 많습니다. ${LOCK_MINUTES}분 뒤 다시 시도해주세요.`);
+  }
 
   const [rows] = await pool.query<RowDataPacket[]>(
     'SELECT id, email, name, role, password_hash FROM users WHERE email = ?',
@@ -113,11 +136,15 @@ authRouter.post('/login', async (req, res) => {
   const found = rows[0];
   if (!found || !(await verifyPassword(password, found.password_hash))) {
     await recordFailure(key);
+    // 없는 계정이 많으면 유출 목록 대입(크리덴셜 스터핑)의 신호다. 로그는 내부용이라 응답과 달리 구분한다
+    securityLog('login_failed', req, { account: accountKey(key), reason: found ? 'wrong_password' : 'unknown_account' });
     throw new HttpError(401, '이메일 또는 비밀번호가 잘못되었습니다.');
   }
   await pool.query('DELETE FROM login_failures WHERE email = ?', [key]); // 성공하면 지난 실패는 지움 (NIST)
   const user = { id: found.id, email: found.email, name: found.name, role: found.role };
-  res.json({ success: true, message: '로그인 성공', data: { token: issueToken(user), user } });
+  const sessionId = uuidv7();
+  securityLog('login_succeeded', req, { user_id: user.id, session_id: sessionId, role: user.role });
+  res.json({ success: true, message: '로그인 성공', data: { token: issueToken(user, sessionId), user } });
 });
 
 authRouter.get('/profile', authenticate, async (req, res) => {

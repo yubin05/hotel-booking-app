@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { api, useApi, withRetry, type HotelDetail, type MyCoupon } from '../api';
+import { api, useApi, withRetry, type HotelDetail, type MyCoupon, type Points } from '../api';
 import { useAuth } from '../auth';
 import { DateRangeField } from '../components/DateRangeField';
 import { GuestsField } from '../components/GuestsField';
@@ -23,17 +23,19 @@ export function BookingPage() {
 
   const hotel = useApi<HotelDetail>(hotelId ? `/hotels/${hotelId}` : null);
   const myCoupons = useApi<MyCoupon[]>(user ? '/coupons/mine' : null);
+  const myPoints = useApi<Points>(user ? '/points' : null);
   const [couponId, setCouponId] = useState('');
+  const [pointsInput, setPointsInput] = useState(0);
   const [requests, setRequests] = useState('');
   const [busy, setBusy] = useState(false);
   // 입력이 같으면 같은 멱등키: 버튼을 여러 번 눌러도 예약은 한 건만 생긴다
   // crypto.randomUUID는 HTTPS·localhost(보안 컨텍스트)에서만 있어 1단계 HTTP에서 화면이 멈췄다. getRandomValues는 HTTP에서도 된다
   const idempotencyKey = useMemo(
     () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''),
-    [roomId, checkIn, checkOut, guests, couponId],
+    [roomId, checkIn, checkOut, guests, couponId, pointsInput],
   );
 
-  if (!user) return <LoginRequired onLogin={openAuth} message="로그인하면 예약하고 쿠폰을 쓸 수 있어요." />;
+  if (!user) return <LoginRequired onLogin={openAuth} message="로그인하면 예약하고 쿠폰 · 적립금을 쓸 수 있어요." />;
   if (hotel.loading && !hotel.data) return <Loading />;
   const room = hotel.data?.rooms.find((r) => r.id === roomId);
   if (hotel.error || !hotel.data || !room) {
@@ -50,6 +52,11 @@ export function BookingPage() {
   const selected = available.find((c) => c.id === couponId);
   const { subtotal, coupon, total } = priceBreakdown(room.discounted_price, nights, selected?.discount_amount ?? 0);
   const original = Number(room.price_per_night) * nights;
+  // 쿠폰을 먼저 빼고 남은 결제액까지 쓸 수 있다. 쿠폰 · 날짜를 바꿔 결제액이 줄면 입력값도 그만큼 줄여 보낸다
+  const balance = myPoints.data?.balance ?? 0;
+  const maxPoints = Math.max(0, Math.min(balance, Math.floor(total)));
+  const points = Math.min(pointsInput, maxPoints);
+  const pay = total - points;
 
   const setStay = (patch: Record<string, string>) =>
     setParams({ hotel: hotelId, room: roomId, check_in: checkIn, check_out: checkOut, guests: String(guests), ...patch }, { replace: true });
@@ -68,6 +75,7 @@ export function BookingPage() {
             guests,
             special_requests: requests.trim() || undefined,
             user_coupon_id: couponId || undefined,
+            points: points || undefined,
           },
         }),
       );
@@ -146,6 +154,35 @@ export function BookingPage() {
           </section>
 
           <section className="card p-4">
+            <label htmlFor="points" className="mb-3 block font-bold">
+              적립금
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="points"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={maxPoints}
+                value={points || ''}
+                placeholder="0"
+                disabled={maxPoints === 0}
+                onChange={(e) => setPointsInput(Math.max(0, Math.floor(Number(e.target.value)) || 0))}
+                className="input"
+              />
+              <button type="button" className="btn-outline shrink-0" disabled={maxPoints === 0} onClick={() => setPointsInput(maxPoints)}>
+                전액 사용
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-slate-500">
+              보유 {won(balance)}{' '}
+              <Link to="/me/points" className="font-semibold text-teal-700 hover:underline">
+                내역 보기
+              </Link>
+            </p>
+          </section>
+
+          <section className="card p-4">
             <label htmlFor="requests" className="mb-2 block font-bold">
               요청 사항 <span className="text-sm font-normal text-slate-400">(선택)</span>
             </label>
@@ -183,13 +220,19 @@ export function BookingPage() {
                   <dd>-{won(coupon)}</dd>
                 </div>
               )}
+              {points > 0 && (
+                <div className="flex justify-between text-orange-600">
+                  <dt>적립금 사용</dt>
+                  <dd>-{won(points)}</dd>
+                </div>
+              )}
               <div className="flex justify-between border-t border-slate-100 pt-3 text-base font-extrabold">
                 <dt>총 결제 금액</dt>
-                <dd>{won(total)}</dd>
+                <dd>{won(pay)}</dd>
               </div>
             </dl>
             <button type="button" disabled={busy || nights < 1} onClick={submit} className="btn-primary w-full">
-              {busy ? '예약하는 중…' : `${won(total)} 예약하기`}
+              {busy ? '예약하는 중…' : `${won(pay)} 예약하기`}
             </button>
             <p className="text-center text-xs text-slate-500">
               체크인 24시간 전까지 무료로 변경·취소할 수 있어요.

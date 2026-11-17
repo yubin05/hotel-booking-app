@@ -5,7 +5,17 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import mysql from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2/promise';
+import { hashPassword } from './auth/password';
 import { dbTls } from './db-tls';
+
+// 호스트 · 관리자 계정 (인프라 ADR-058): 시드 숙소 주인 2명(hotels.host_id)과 관리자 1명.
+// 서울을 밤마다 내려 DB가 매일 새로 생기므로 배포마다 없으면 만든다. 비밀번호는 SSM SecureString을 ECS가 환경 변수로 넣고
+// (공개 저장소라 시드에 넣지 않음), 값이 없으면 건너뛴다
+const STAFF = [
+  { env: 'HOST1_PASSWORD', id: '11111111-0000-0000-0000-000000000002', email: 'host1@spongetrip.local', name: '숙소 주인 1', role: 'host' },
+  { env: 'HOST2_PASSWORD', id: '11111111-0000-0000-0000-000000000003', email: 'host2@spongetrip.local', name: '숙소 주인 2', role: 'host' },
+  { env: 'ADMIN_PASSWORD', id: '11111111-0000-0000-0000-000000000001', email: 'admin@spongetrip.local', name: '관리자', role: 'admin' },
+];
 
 function required(name: string): string {
   const value = process.env[name];
@@ -59,6 +69,28 @@ async function main() {
     // FOR UPDATE는 SELECT + UPDATE면 충분. DROP · ALTER · CREATE는 주지 않음
     await conn.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ??.* TO 'app'@'%'", [database]);
     console.log('앱 계정 완료');
+
+    // 이미 있으면 비밀번호를 바꾸지 않는다: 사건 대응으로 관리자가 바꾼 비밀번호를 배포가 되돌리면 안 된다
+    for (const staff of STAFF) {
+      const password = process.env[staff.env];
+      if (!password) {
+        console.log(`${staff.email}: ${staff.env} 없음, 건너뜀`);
+        continue;
+      }
+      const [found] = await conn.query<RowDataPacket[]>('SELECT 1 FROM users WHERE id = ?', [staff.id]);
+      if (found[0]) {
+        console.log(`${staff.email}: 있음, 건너뜀`);
+        continue;
+      }
+      await conn.query('INSERT INTO users (id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?)', [
+        staff.id,
+        staff.email,
+        await hashPassword(password),
+        staff.name,
+        staff.role,
+      ]);
+      console.log(`${staff.email}: 만듦 (${staff.role})`);
+    }
 
     // DB가 비공개라 밖에서 못 보므로, 결과 행 수를 로그로 남김
     const [counts] = await conn.query<RowDataPacket[]>(
