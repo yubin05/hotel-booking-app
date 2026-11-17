@@ -31,3 +31,16 @@ npm ci && npm test             # 테스트는 같은 MySQL의 테스트 전용 D
 
 - **CI** (`ci.yml`): PR과 main push마다 테스트와 이미지 빌드를 확인합니다.
 - **CD** (`cd.yml`): 인프라팀이 작성해 제공한 워크플로입니다. 손으로 실행하면 이미지를 빌드해 서울 ECR에 올립니다. AWS 접근은 OIDC로 받는 배포 역할(main 브랜치만)을 쓰고, 이 저장소에는 AWS 키를 두지 않습니다. 배포 역할과 권한은 인프라 저장소가 관리합니다.
+
+<details>
+<summary>시연 계정 (호스트 · 관리자 화면)</summary>
+
+| 역할 | 아이디 | 볼 수 있는 화면 |
+|---|---|---|
+| 숙소 주인 | host1@spongetrip.local (숙소 6곳) · host2@spongetrip.local (4곳) | 내 숙소 예약 · 숙박 완료 |
+| 관리자 | admin@spongetrip.local | 계정 조회 · 사건 복구 |
+
+비밀번호는 공개하지 않습니다. 시연이 필요하면 요청해 주세요. 일반 손님 계정은 가입 화면에서 바로 만들 수 있습니다.
+
+포트폴리오 시연용 고정 계정입니다. 실제로 서비스한다면 숙소 주인은 직접 가입한 뒤 숙소 확인을 받고, 운영사 직원은 회사 SSO로 로그인합니다([인프라 ADR-060](https://github.com/yubin05/hotel-booking-aws-v2/blob/main/docs/04-decisions.md#adr-060)).
+</details>
