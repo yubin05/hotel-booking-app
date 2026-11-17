@@ -7,6 +7,7 @@ import { config } from '../config';
 import { pool, withTransaction } from '../db';
 import { HttpError } from '../errors';
 import { securityLog } from '../log';
+import { notifyBookingConfirmed } from '../notify';
 import { uuidv7 } from '../uuidv7';
 
 // 데모 결제 (docs/decisions.md APP-001): 예약하면 객실을 잡아 두고 결제 대기, 10분 안에 토스 결제를 승인받으면 확정.
@@ -112,6 +113,9 @@ paymentRouter.post('/confirm', authenticate, async (req, res) => {
     return { booking_id: found.booking_id, newly: true };
   });
 
-  if (data.newly) securityLog('payment_confirmed', req, { booking_id: data.booking_id, amount });
+  if (data.newly) {
+    securityLog('payment_confirmed', req, { booking_id: data.booking_id, amount });
+    notifyBookingConfirmed(data.booking_id);
+  }
   res.json({ success: true, message: '결제가 완료되었습니다.', data: { booking_id: data.booking_id, status: 'paid' } });
 });

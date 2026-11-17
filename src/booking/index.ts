@@ -8,6 +8,7 @@ import { HttpError } from '../errors';
 import { securityLog } from '../log';
 import { findBookableRoom, nightlyPrice } from '../hotel';
 import { lockPointsOwner, refundPoints, usePoints } from '../points';
+import { notifyBookingConfirmed } from '../notify';
 import { createPendingPayment, paymentsEnabled } from '../payments';
 import { kstToday, utcIso } from '../time';
 import { uuidv7 } from '../uuidv7';
@@ -209,6 +210,7 @@ bookingRouter.post('/', async (req, res) => {
       points_used: created.points_used,
       coupon: Boolean(user_coupon_id),
     });
+    if (!created.payment) notifyBookingConfirmed(created.id); // 결제가 있으면 승인 뒤에 보낸다
     res.status(201).json({ success: true, message: '예약이 완료되었습니다.', data: created });
     return;
   }
