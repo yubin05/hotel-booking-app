@@ -1,0 +1,2 @@
+# terraform.tfvars로 복사해 씀 (terraform.tfvars는 커밋하지 않음). legacy 작업 날만 true
+attach_operator_legacy = false

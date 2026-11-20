@@ -27,8 +27,6 @@ provider "aws" {
 locals {
   operator_group = "normal-user-group" # 평소 사용자가 속한 그룹
 
-  # legacy 작업을 하는 날만 true로 바꿔 관리자 역할로 apply (붙였다 떼기)
-  attach_operator_legacy = false
 }
 
 resource "aws_iam_policy" "operator_legacy" {
@@ -38,7 +36,7 @@ resource "aws_iam_policy" "operator_legacy" {
 }
 
 resource "aws_iam_group_policy_attachment" "operator_legacy" {
-  count      = local.attach_operator_legacy ? 1 : 0
+  count      = var.attach_operator_legacy ? 1 : 0
   group      = local.operator_group
   policy_arn = aws_iam_policy.operator_legacy.arn
 }

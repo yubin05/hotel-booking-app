@@ -54,12 +54,11 @@ terraform init
 ```bash
 cd /c/dev/hotel-booking-app/legacy/iam
 aws login --profile admin            # 콘솔에서 관리자 역할로 전환한 상태에서
-export AWS_PROFILE=admin
-terraform init                       # 처음 받은 PC에서 한 번 (state는 S3의 legacy-iam/terraform.tfstate)
-# main.tf의 attach_operator_legacy를 true로 바꾼 뒤
-terraform plan
-date; terraform apply                # 끝나면 false로 되돌리고 다시 apply
-unset AWS_PROFILE
+AWS_PROFILE=admin terraform init     # 처음 받은 PC에서 한 번 (state는 S3의 legacy-iam/terraform.tfstate)
+[ -f terraform.tfvars ] || cp terraform.tfvars.example terraform.tfvars   # 처음 한 번 (커밋 안 되는 파일)
+# terraform.tfvars의 attach_operator_legacy를 true로 바꾼 뒤
+AWS_PROFILE=admin terraform plan     # 1 to add
+date; AWS_PROFILE=admin terraform apply; date   # 끝나면 false로 되돌리고 다시 apply (1 to destroy)
 ```
 
 ## 매일: 올리기 → 확인 → 지우기
