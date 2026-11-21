@@ -37,7 +37,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - id: login-ecr
-        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
 
       # 태그는 짧은 커밋 SHA (ADR-022). 저장소가 태그 불변이라 같은 태그를 다시 올리면 실패하므로, 이미 있으면 빌드를 건너뜀
       - name: 이미 올라간 커밋인지 확인
