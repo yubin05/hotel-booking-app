@@ -198,6 +198,8 @@ interface RequestOptions {
   idempotencyKey?: string;
 }
 
+const UNAVAILABLE = '점검 중이거나 접속이 몰려 있어요. 잠시 후 다시 시도해주세요.';
+
 export async function api<T>(path: string, { method = 'GET', body, idempotencyKey }: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -214,7 +216,9 @@ export async function api<T>(path: string, { method = 'GET', body, idempotencyKe
   const json = await res.json().catch(() => ({}));
   // 로그인이 만료됐거나 더 이상 유효하지 않으면 남은 로그인 정보를 지운다
   if (res.status === 401 && authToken) onUnauthorized?.();
-  if (!res.ok) throw new ApiError(res.status, json.message ?? '요청을 처리하지 못했습니다.');
+  // 502 · 503 · 504에 JSON이 없으면 앱 서버에 닿지 못한 것(리전 전환 · 장애, CloudFront 점검 페이지로 본문이 바뀜, v2 ADR-070)
+  const fallback = res.status >= 502 && res.status <= 504 ? UNAVAILABLE : '요청을 처리하지 못했습니다.';
+  if (!res.ok) throw new ApiError(res.status, json.message ?? fallback);
   return json.data as T;
 }
 
