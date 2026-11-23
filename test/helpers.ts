@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { after, before } from 'node:test';
+import { after, before, type TestContext } from 'node:test';
 import jwt from 'jsonwebtoken';
 import { listen } from '../src/app';
 import { couponPool, pool } from '../src/db';
@@ -41,6 +41,15 @@ export function useServer(): void {
     server.close();
     await Promise.all([pool.end(), couponPool.end()]);
   });
+}
+
+// 테스트 서버가 같은 프로세스에서 돌아 console.log를 가로채 보안 로그 줄만 모은다
+export function captureSecurityLogs(t: TestContext): Record<string, unknown>[] {
+  const lines: Record<string, unknown>[] = [];
+  t.mock.method(console, 'log', (line: unknown) => {
+    if (typeof line === 'string' && line.startsWith('{"log":"security"')) lines.push(JSON.parse(line));
+  });
+  return lines;
 }
 
 // 호스트 · 관리자 계정은 배포 환경에서 migrate가 만든다. 테스트에서는 같은 비밀값으로 토큰을 직접 만든다

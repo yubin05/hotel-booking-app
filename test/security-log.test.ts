@@ -1,20 +1,11 @@
-import { call, ctx, useServer } from './helpers';
+import { call, captureSecurityLogs, ctx, useServer } from './helpers';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { test, type TestContext } from 'node:test';
+import { test } from 'node:test';
 import jwt from 'jsonwebtoken';
 import { accountKey } from '../src/log';
 
 useServer();
-
-// 테스트 서버가 같은 프로세스에서 돌아 console.log를 가로채 보안 로그 줄만 모은다
-function captureSecurityLogs(t: TestContext): Record<string, unknown>[] {
-  const lines: Record<string, unknown>[] = [];
-  t.mock.method(console, 'log', (line: unknown) => {
-    if (typeof line === 'string' && line.startsWith('{"log":"security"')) lines.push(JSON.parse(line));
-  });
-  return lines;
-}
 
 // CloudFront → ALB를 거친 것처럼: 손님이 보낸 가짜 값, CloudFront가 덧붙인 손님 IP, ALB가 덧붙인 CloudFront IP
 function login(email: string, password: string) {

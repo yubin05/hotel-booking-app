@@ -1,4 +1,5 @@
 import { listen } from './app';
+import { purgeOldSessions } from './auth';
 import { config } from './config';
 import { couponPool, pool } from './db';
 import { flushEmf } from './metrics';
@@ -18,6 +19,14 @@ const expiryTimer = setInterval(() => {
   );
 }, 60_000);
 
+// 90일 지난 로그인 기록을 1시간마다 지운다 (인프라 ADR-072). 배포로 태스크가 자주 바뀌어도 돌도록 하루가 아닌 1시간
+const sessionPurgeTimer = setInterval(() => {
+  purgeOldSessions().then(
+    (n) => n > 0 && console.log(`90일 지난 로그인 기록 ${n}건 삭제`),
+    (err) => console.error('로그인 기록 정리 실패:', err instanceof Error ? err.message : err),
+  );
+}, 3_600_000);
+
 // 관제 화면용 1초 지표를 1초마다 EMF 한 줄로 남긴다 (ADR-061, METRICS_EMF=1일 때만)
 const metricsTimer = process.env.METRICS_EMF === '1' ? setInterval(() => console.log(flushEmf()), 1000) : undefined;
 
@@ -26,6 +35,7 @@ const metricsTimer = process.env.METRICS_EMF === '1' ? setInterval(() => console
 process.on('SIGTERM', () => {
   console.log('SIGTERM 받음: 새 연결을 받지 않고 처리 중인 요청을 마침');
   clearInterval(expiryTimer);
+  clearInterval(sessionPurgeTimer);
   clearInterval(metricsTimer);
   server.close(() => {
     console.log('연결 모두 닫힘: DB 연결 정리 후 종료');

@@ -7,7 +7,7 @@ import { isDuplicateKey, isMissingReference, pool, withTransaction } from '../db
 import { HttpError } from '../errors';
 import { securityLog } from '../log';
 import { findBookableRoom, nightlyPrice } from '../hotel';
-import { lockPointsOwner, refundPoints, usePoints } from '../points';
+import { holdIfSuspicious, lockPointsOwner, refundPoints, usePoints } from '../points';
 import { notifyBookingConfirmed } from '../notify';
 import { createPendingPayment, paymentsEnabled } from '../payments';
 import { kstToday, utcIso } from '../time';
@@ -157,6 +157,7 @@ bookingRouter.post('/', async (req, res) => {
   }
   const nights = stayNights(check_in_date, check_out_date);
   const id = uuidv7();
+  let hold = null as Awaited<ReturnType<typeof holdIfSuspicious>>; // as: 콜백 안 대입을 TS가 못 봐 null로 좁히지 않게
 
   const created = await withTransaction(async (conn) => {
     if (points > 0) await lockPointsOwner(conn, userId);
@@ -188,7 +189,7 @@ bookingRouter.post('/', async (req, res) => {
     await reserveNights(conn, room_id, id, nights);
     if (user_coupon_id) await markCouponUsed(conn, user_coupon_id, id);
     // 잔액 확인은 멱등키 중복 확인(INSERT) 뒤에: 이미 처리된 요청을 다시 보내면 잔액이 줄어 있어도 처음 예약을 돌려줘야 한다
-    if (points > 0) await usePoints(conn, userId, points, id, req.user!.sessionId);
+    if (points > 0) hold = await holdIfSuspicious(conn, req, points, await usePoints(conn, req, points, id));
     // 낼 돈이 있으면 결제 대기(10분). 결제가 꺼져 있거나 쿠폰 · 적립금으로 0원이면 바로 확정
     const payment = paymentsEnabled() && Math.round(total) > 0 ? await createPendingPayment(conn, id, total) : null;
     return {
@@ -210,6 +211,8 @@ bookingRouter.post('/', async (req, res) => {
       points_used: created.points_used,
       coupon: Boolean(user_coupon_id),
     });
+    // 계정 탈취 의심으로 이 세션을 보류함 (ADR-072): CloudWatch 지표 필터 → 경보 → Slack. 응답에는 알리지 않는다
+    if (hold) securityLog('points_hold_applied', req, { booking_id: created.id, points_used: created.points_used, ...hold });
     if (!created.payment) notifyBookingConfirmed(created.id); // 결제가 있으면 승인 뒤에 보낸다
     res.status(201).json({ success: true, message: '예약이 완료되었습니다.', data: created });
     return;
@@ -295,8 +298,11 @@ bookingRouter.patch('/:id', async (req, res) => {
     // 숙박이 줄어 쓴 적립금이 새 결제액보다 많으면, 이 트랜잭션 안에서 전부 환원하고 결제액까지만 다시 쓴다.
     // "취소 후 다시 예약"으로 돌리면 그 사이 다른 손님이 객실을 가져갈 수 있다. 환원액 ≥ 다시 쓰는 액이라 잔액은 줄지 않는다
     if (points < used) {
+      // 같은 회원의 새 예약과 차례로 처리한다: 보류 검사의 세션 잠금 읽기와 새 예약의 보류 기록이 서로를 기다리는 교착을 막는다.
+      // 환원 INSERT보다 먼저 잠근다 (lockPointsOwner 주석)
+      await lockPointsOwner(conn, req.user!.userId);
       await refundPoints(conn, booking.id, req.user!.sessionId);
-      if (points > 0) await usePoints(conn, req.user!.userId, points, booking.id, req.user!.sessionId);
+      if (points > 0) await usePoints(conn, req, points, booking.id);
     }
     await conn.query(
       `UPDATE bookings SET check_in_date = ?, check_out_date = ?, guests = ?, total_price = ?, discount_amount = ?

@@ -179,6 +179,20 @@ CREATE TABLE IF NOT EXISTS kakao_links (
   CONSTRAINT fk_kakao_links_user FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
+-- 로그인 세션 (인프라 ADR-072, 시나리오 A): 토큰을 줄 때마다 한 줄. 적립금을 쓸 때 평소 접속 환경과 비교하고, 의심 세션의 적립금 사용 보류를 둔다.
+-- 90일 뒤 지운다(src/server.ts). 개인정보처리방침의 "로그인 기록 3개월"과 같은 기간
+CREATE TABLE IF NOT EXISTS sessions (
+  id          CHAR(36)     NOT NULL PRIMARY KEY,           -- 토큰 jti (point_transactions.session_id와 같은 값)
+  user_id     CHAR(36)     NOT NULL,
+  ip          VARCHAR(45),                                 -- 손님 IP (IPv6 최대 길이)
+  ua          VARCHAR(200),                                -- 브라우저(User-Agent) 앞 200자, 보안 로그와 같은 길이
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  held_at     DATETIME,                                    -- 적립금 사용 보류 시각. NULL이면 보류 아님
+  hold_reason VARCHAR(100),                                -- 보류 때 걸린 신호
+  KEY idx_sessions_user_created (user_id, created_at),
+  CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
 -- 로그인 실패 기록 (인프라 ADR-054): 입력한 이메일마다 센다. 없는 계정도 똑같이 세고 잠가서 잠금 응답으로 회원인지 드러나지 않게 (OWASP)
 CREATE TABLE IF NOT EXISTS login_failures (
   email           VARCHAR(255) NOT NULL PRIMARY KEY,

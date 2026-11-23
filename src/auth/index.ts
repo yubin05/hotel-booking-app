@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import type { RowDataPacket } from 'mysql2';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { config } from '../config';
 import { isDuplicateKey, pool } from '../db';
 import { HttpError } from '../errors';
@@ -25,6 +25,25 @@ declare global {
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// 토큰을 줄 때마다 세션 행을 남긴다 (인프라 ADR-072): 적립금을 쓸 때 이 접속 환경(IP · 브라우저)을 평소와 비교한다
+async function startSession(req: Request, userId: string): Promise<string> {
+  const sessionId = uuidv7();
+  await pool.query('INSERT INTO sessions (id, user_id, ip, ua, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())', [
+    sessionId,
+    userId,
+    req.ip ?? null,
+    req.get('user-agent')?.slice(0, 200) ?? null,
+  ]);
+  return sessionId;
+}
+
+// 로그인 기록은 90일 뒤 지운다 (인프라 ADR-072). 탐지에는 최근 30일만 쓴다
+// shortcut: created_at만으로 찾는 색인이 없어 표 전체를 훑는다. 행이 많아져 느려지면 (created_at) 색인
+export async function purgeOldSessions(): Promise<number> {
+  const [result] = await pool.query<ResultSetHeader>('DELETE FROM sessions WHERE created_at < UTC_TIMESTAMP() - INTERVAL 90 DAY');
+  return result.affectedRows;
+}
 
 // sessionId는 토큰 jti(세션 번호): 적립금 내역 · 로그에 남겨 사건 때 공격자 세션이 한 일만 골라낸다 (인프라 ADR-058)
 function issueToken(user: { id: string; email: string; role: string }, sessionId: string): string {
@@ -89,7 +108,7 @@ authRouter.post('/register', async (req, res) => {
     if (isDuplicateKey(err)) throw new HttpError(409, '이미 사용 중인 이메일입니다.');
     throw err;
   }
-  const sessionId = uuidv7();
+  const sessionId = await startSession(req, user.id);
   securityLog('register', req, { user_id: user.id, session_id: sessionId }); // 봇 대량 가입(시나리오 3) 탐지
   res.status(201).json({ success: true, message: '회원가입이 완료되었습니다.', data: { token: issueToken(user, sessionId), user } });
 });
@@ -142,7 +161,7 @@ authRouter.post('/login', async (req, res) => {
   }
   await pool.query('DELETE FROM login_failures WHERE email = ?', [key]); // 성공하면 지난 실패는 지움 (NIST)
   const user = { id: found.id, email: found.email, name: found.name, role: found.role };
-  const sessionId = uuidv7();
+  const sessionId = await startSession(req, user.id);
   securityLog('login_succeeded', req, { user_id: user.id, session_id: sessionId, role: user.role });
   res.json({ success: true, message: '로그인 성공', data: { token: issueToken(user, sessionId), user } });
 });
