@@ -52,7 +52,9 @@ jobs:
       - name: 이미지 빌드 · push
         if: steps.tag.outputs.exists != 'true'
         run: |
-          docker build -t "$IMAGE" .
+          # provenance 증명서를 끔: 아무도 검증하지 않는데 push마다 ECR 항목이 3개(목차 · 이미지 · 증명서)로 늘어
+          # "최근 10개" 수명 주기가 배포 3 ~ 4번분만 남겼다. 공급망은 태그 불변 · push 스캔 · OIDC로 지킴 (v2 ADR-075)
+          docker build --provenance=false -t "$IMAGE" .
           docker push "$IMAGE"
           echo "이미지 올림: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
 
