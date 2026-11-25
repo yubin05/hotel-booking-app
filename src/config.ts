@@ -4,6 +4,15 @@ function required(name: string): string {
   return value;
 }
 
+// 없으면 기본값, 있으면 1 이상의 정수만 받는다 (잘못된 값으로 조용히 0개 연결이 되는 것을 막음)
+export function positiveInt(name: string, fallback: number): number {
+  const value = process.env[name];
+  if (value === undefined || value === '') return fallback;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`환경 변수 ${name}은(는) 1 이상의 정수여야 합니다: ${value}`);
+  return n;
+}
+
 export const config = {
   port: Number(process.env.PORT) || 3000,
   db: {
@@ -12,6 +21,10 @@ export const config = {
     user: process.env.DB_USER || 'app',
     password: required('DB_PASSWORD'),
     name: process.env.DB_NAME || 'hotel_booking',
+    // 서버 한 대가 여는 DB 연결 수(일반 · 쿠폰 전용). 서버 수 × (둘의 합)이 DB 연결 한도 안이어야 한다.
+    // 인프라 시험에서 서버를 늘릴 때 줄여 쓴다 (v2 ADR-074 ②: 8대 × (5 + 1) = 48)
+    poolSize: positiveInt('DB_POOL_SIZE', 10),
+    couponPoolSize: positiveInt('DB_COUPON_POOL_SIZE', 2),
   },
   jwtSecret: required('JWT_SECRET'),
   // 메일 · 카카오톡 링크가 가리킬 사이트 주소

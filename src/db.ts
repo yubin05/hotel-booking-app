@@ -72,11 +72,11 @@ function limitQueries(p: Pool): Pool {
   return p;
 }
 
-export const pool = limitQueries(mysql.createPool({ ...options, connectionLimit: 10 }));
+export const pool = limitQueries(mysql.createPool({ ...options, connectionLimit: config.db.poolSize }));
 
 // 쿠폰 발급 전용 (TS-08). 발급은 쿠폰 한 행의 잠금 때문에 어차피 한 건씩 처리되어 연결을 늘려도 빨라지지 않는다.
 // 공용 연결을 쓰면 오픈 순간 잠금을 기다리는 요청이 10개를 모두 쥐어 쿠폰과 무관한 조회까지 멈춘다
-export const couponPool = limitQueries(mysql.createPool({ ...options, connectionLimit: 2 }));
+export const couponPool = limitQueries(mysql.createPool({ ...options, connectionLimit: config.db.couponPoolSize }));
 
 // 새 연결마다 조회 시간 상한을 건다. promise 풀도 이 이벤트로는 콜백 방식 연결을 넘기고(mysql2 lib/promise/pool.js가
 // 기본 풀의 이벤트를 그대로 넘김), 연결을 요청한 쪽에 건네기 직전에 내므로 이 SET이 그 연결의 첫 조회보다 먼저 실행된다
