@@ -31,7 +31,10 @@ const ER_QUERY_TIMEOUT = 3024;
 // mysql2는 빈 연결을 기다리는 시간에 제한이 없고, 쿼리 timeout은 promise만 실패시킬 뿐 연결을 닫지 않아
 // 멈춘 연결이 풀로 돌아가 다음 요청도 그 뒤에 줄을 선다. 그래서 시간이 다 되면 직접 실패시키고 쥐고 있던 연결은 버린다
 // (destroy: 풀에서 빠지고 더 이상 명령을 보내지 않아, 응답한 뒤에 확정(커밋)되는 일을 막는다. 이미 보낸 COMMIT은 막지 못한다)
-async function limited<T>(from: Pool, work: (conn: PoolConnection) => Promise<T>): Promise<T> {
+// 빈 연결을 기다린 시간(waitMs)과 연결을 쥐고 일한 시간(workMs). 쿠폰 쏠림 병목 진단용 (v2 쿠폰 3,000명 0단계)
+export type DbTiming = { waitMs: number; workMs: number };
+
+export async function limited<T>(from: Pool, work: (conn: PoolConnection) => Promise<T>, timing?: DbTiming): Promise<T> {
   let conn: PoolConnection | undefined;
   let expired = false;
   let timer: NodeJS.Timeout | undefined;
@@ -43,18 +46,22 @@ async function limited<T>(from: Pool, work: (conn: PoolConnection) => Promise<T>
     }, DB_TIMEOUT_MS);
   });
   const run = (async () => {
+    const t0 = performance.now();
     const c = await from.getConnection();
+    if (timing) timing.waitMs = performance.now() - t0;
     if (expired) {
       c.release(); // 시간이 다 된 뒤에 받은 연결은 쓰지 않고 돌려준다
       return undefined as T;
     }
     conn = c;
+    const t1 = performance.now();
     try {
       return await work(c);
     } catch (err) {
       if ((err as { errno?: number }).errno === ER_QUERY_TIMEOUT) throw new HttpError(503, BUSY);
       throw err;
     } finally {
+      if (timing) timing.workMs = performance.now() - t1;
       if (!expired) c.release();
     }
   })();
@@ -88,7 +95,7 @@ for (const p of [pool, couponPool]) {
   });
 }
 
-export function withTransaction<T>(fn: (conn: PoolConnection) => Promise<T>, from: Pool = pool): Promise<T> {
+export function withTransaction<T>(fn: (conn: PoolConnection) => Promise<T>, from: Pool = pool, timing?: DbTiming): Promise<T> {
   return limited(from, async (conn) => {
     await conn.beginTransaction();
     try {
@@ -99,7 +106,7 @@ export function withTransaction<T>(fn: (conn: PoolConnection) => Promise<T>, fro
       await conn.rollback();
       throw err;
     }
-  });
+  }, timing);
 }
 
 export function isDuplicateKey(err: unknown): boolean {

@@ -5,7 +5,7 @@ import { after, test } from 'node:test';
 import mysql from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2';
 import { config } from '../src/config';
-import { couponPool, pool, SELECT_TIMEOUT_MS, withTransaction } from '../src/db';
+import { couponPool, type DbTiming, pool, SELECT_TIMEOUT_MS, withTransaction } from '../src/db';
 
 // 앱의 연결 풀(src/db)을 썼으므로 닫아야 테스트 프로세스가 끝난다
 after(() => Promise.all([pool.end(), couponPool.end()]));
@@ -103,4 +103,14 @@ test('DB가 답하지 않으면 연결을 쥔 요청과 빈 연결을 기다리�
     relay.close();
     await stuck.end();
   }
+});
+
+// 쿠폰 쏠림 병목 진단(v2 쿠폰 3,000명 0단계): 빈 연결을 기다린 시간과 연결을 쥐고 일한 시간을 따로 잰다
+test('연결 대기 시간(waitMs)과 작업 시간(workMs)을 나눠 잰다', async () => {
+  const held = await Promise.all(Array.from({ length: config.db.couponPoolSize }, () => couponPool.getConnection()));
+  setTimeout(() => held.forEach((c) => c.release()), 300);
+  const timing: DbTiming = { waitMs: 0, workMs: 0 };
+  await withTransaction((c) => c.query('SELECT SLEEP(0.1)'), couponPool, timing);
+  assert.ok(timing.waitMs >= 250, `연결을 모두 쥐고 있던 300ms 동안 기다려야 한다 (${timing.waitMs}ms)`);
+  assert.ok(timing.workMs >= 90, `SLEEP(0.1)만큼 일해야 한다 (${timing.workMs}ms)`);
 });
