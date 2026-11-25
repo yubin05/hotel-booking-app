@@ -1,3 +1,6 @@
+// 글꼴은 외부 CDN(jsDelivr) 대신 앱 안에서 내준다: 부하 시험 중 첫 화면이 외부 CDN 주소 찾기 · 연결에만 3초를 쓴 적이 있어(v2 11-25 HAR)
+// 우리 CloudFront로 1년 캐시. 화면에 필요한 글자 조각(woff2)만 브라우저가 골라 받는다
+import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 import 'react-day-picker/style.css';
 import './index.css';
 import { StrictMode, useEffect } from 'react';
