@@ -7,6 +7,7 @@ import { after, before, type TestContext } from 'node:test';
 import jwt from 'jsonwebtoken';
 import { listen } from '../src/app';
 import { couponPool, pool } from '../src/db';
+import { closeCouponRedis } from '../src/redis';
 
 // 실제 MySQL이 필요하다: docker compose up -d db (테스트 전용 DB hotel_booking_test를 쓴다)
 export { pool };
@@ -39,7 +40,7 @@ export function useServer(): void {
   });
   after(async () => {
     server.close();
-    await Promise.all([pool.end(), couponPool.end()]);
+    await Promise.all([pool.end(), couponPool.end(), closeCouponRedis()]);
   });
 }
 

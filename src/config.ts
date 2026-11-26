@@ -27,6 +27,9 @@ export const config = {
     couponPoolSize: positiveInt('DB_COUPON_POOL_SIZE', 2),
   },
   jwtSecret: required('JWT_SECRET'),
+  // 쿠폰 수량 번호표(Valkey, 인프라 ADR-080). 비우면 쓰지 않고 DB 쿠폰 행이 수량을 지킨다(로컬 · 도쿄)
+  // rediss:// = ElastiCache Serverless(항상 클러스터 모드 · TLS 필수) / redis:// = 로컬 · CI의 단일 Valkey
+  redisUrl: process.env.REDIS_URL ?? '',
   // 메일 · 카카오톡 링크가 가리킬 사이트 주소
   appUrl: process.env.APP_URL || 'http://localhost:3000',
   // 예약 확정 메일(Amazon SES, 인프라 ADR-037). 보내는 주소가 없으면 보내지 않고 로그에 제목만 남긴다(로컬 기본)

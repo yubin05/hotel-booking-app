@@ -5,6 +5,7 @@ import { authenticate } from '../auth';
 import { couponPool, type DbTiming, inTransaction, isDuplicateKey, isMissingReference, limited, pool } from '../db';
 import { HttpError } from '../errors';
 import { securityLog } from '../log';
+import { couponRedis, returnTicket, takeTicket } from '../redis';
 import { utcIso } from '../time';
 import { uuidv7 } from '../uuidv7';
 
@@ -123,7 +124,8 @@ couponRouter.post('/:id/claim', authenticate, async (req, res) => {
       (c) =>
         c.query<RowDataPacket[]>(
           `SELECT starts_at <= UTC_TIMESTAMP() AS started, ends_at > UTC_TIMESTAMP() AS open,
-                  issued_count < quantity AS remaining
+                  issued_count < quantity AS remaining, quantity, issued_count,
+                  GREATEST(TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), ends_at), 0) AS seconds_left
              FROM coupons WHERE id = ?`,
           [couponId],
         ),
@@ -139,39 +141,75 @@ couponRouter.post('/:id/claim', authenticate, async (req, res) => {
     }
 
     const id = uuidv7();
-    await limited(couponPool, (c) => {
-      // 줄 서 있던 사이에 소진됐으면 BEGIN도 보내지 않고 연결을 다음 요청에 넘긴다
-      if (soldOut.has(couponId)) throw soldOutError('sold_out_memory');
-      return inTransaction(c, async (conn) => {
-        // 쿠폰 행을 먼저 잠근다. 받은 기록 INSERT의 외래 키 검사가 쿠폰 행에 공유 잠금을 걸기 때문에, INSERT를 먼저 하면
-        // 동시 요청끼리 공유 잠금을 쥔 채 서로의 배타 잠금을 기다리다 교착(deadlock)이 나 쿠폰이 남아도 거절됐다
-        const [result] = await conn.query<ResultSetHeader>(
-          `UPDATE coupons SET issued_count = issued_count + 1
-            WHERE id = ? AND issued_count < quantity
-              AND starts_at <= UTC_TIMESTAMP() AND ends_at > UTC_TIMESTAMP()`,
-          [couponId],
-        );
-        if (result.affectedRows === 0) {
-          soldOut.add(couponId); // 연결을 돌려주기 전에 표시해야 바로 뒤에 줄 선 요청이 본다
-          throw soldOutError('sold_out_tx');
+    async function insertUserCoupon(conn: PoolConnection): Promise<void> {
+      try {
+        await conn.query('INSERT INTO user_coupons (id, coupon_id, user_id) VALUES (?, ?, ?)', [id, couponId, req.user!.userId]);
+      } catch (err) {
+        // 트랜잭션이 되돌아가므로 같이 올린 발급 수도 원래대로 돌아간다
+        if (isDuplicateKey(err)) {
+          outcome = 'duplicate';
+          throw new HttpError(409, '이미 받은 쿠폰입니다.');
         }
-        try {
-          await conn.query('INSERT INTO user_coupons (id, coupon_id, user_id) VALUES (?, ?, ?)', [
-            id,
-            couponId,
-            req.user!.userId,
-          ]);
-        } catch (err) {
-          // 트랜잭션이 되돌아가므로 위에서 올린 발급 수도 원래대로 돌아간다
-          if (isDuplicateKey(err)) {
-            outcome = 'duplicate';
-            throw new HttpError(409, '이미 받은 쿠폰입니다.');
+        if (isMissingReference(err)) throw new HttpError(401, '로그인 정보가 유효하지 않습니다. 다시 로그인해주세요.');
+        throw err;
+      }
+    }
+
+    // 수량은 Valkey 번호표가 지킨다(인프라 ADR-080): 탈락자는 쿠폰 행에 가지 않고 바로 소진, 당첨자는 받은 기록만 넣어 서로 안 기다림.
+    // Valkey가 없거나(로컬 · 도쿄) 답하지 않으면 아래 DB 경로(쿠폰 행 조건부 UPDATE)가 지킨다
+    const redis = couponRedis();
+    let ticket: number | null = null;
+    if (redis) {
+      try {
+        ticket = await takeTicket(redis, couponId, Number(coupon.issued_count), Number(coupon.seconds_left) + 86400);
+      } catch (err) {
+        console.error('Valkey 번호표 실패 → DB 경로', (err as Error).message);
+      }
+    }
+    if (redis && ticket !== null) {
+      if (ticket > Number(coupon.quantity)) {
+        soldOut.add(couponId);
+        throw soldOutError('sold_out_ticket');
+      }
+      const giveBack = () => returnTicket(redis, couponId).catch((e: Error) => console.error('번호표 반납 실패', e.message));
+      let started = false;
+      try {
+        await limited(couponPool, async (c) => {
+          started = true;
+          try {
+            await inTransaction(c, insertUserCoupon);
+          } catch (err) {
+            await giveBack();
+            throw err;
           }
-          if (isMissingReference(err)) throw new HttpError(401, '로그인 정보가 유효하지 않습니다. 다시 로그인해주세요.');
-          throw err;
-        }
-      });
-    }, tx);
+          // 목록의 남은 수 · 확인 SQL용 발급 수. 받은 기록을 넣은 뒤 따로 1 올려 쿠폰 행을 아주 잠깐만 잠근다(초과는 번호표가 막음)
+          await c.query('UPDATE coupons SET issued_count = issued_count + 1 WHERE id = ?', [couponId]);
+        }, tx);
+      } catch (err) {
+        if (!started) await giveBack(); // 쿠폰 연결을 기다리다 시간이 다 됨: 아직 아무것도 안 넣었으니 번호표를 돌려줌
+        throw err;
+      }
+    } else {
+      await limited(couponPool, (c) => {
+        // 줄 서 있던 사이에 소진됐으면 BEGIN도 보내지 않고 연결을 다음 요청에 넘긴다
+        if (soldOut.has(couponId)) throw soldOutError('sold_out_memory');
+        return inTransaction(c, async (conn) => {
+          // 쿠폰 행을 먼저 잠근다. 받은 기록 INSERT의 외래 키 검사가 쿠폰 행에 공유 잠금을 걸기 때문에, INSERT를 먼저 하면
+          // 동시 요청끼리 공유 잠금을 쥔 채 서로의 배타 잠금을 기다리다 교착(deadlock)이 나 쿠폰이 남아도 거절됐다
+          const [result] = await conn.query<ResultSetHeader>(
+            `UPDATE coupons SET issued_count = issued_count + 1
+              WHERE id = ? AND issued_count < quantity
+                AND starts_at <= UTC_TIMESTAMP() AND ends_at > UTC_TIMESTAMP()`,
+            [couponId],
+          );
+          if (result.affectedRows === 0) {
+            soldOut.add(couponId); // 연결을 돌려주기 전에 표시해야 바로 뒤에 줄 선 요청이 본다
+            throw soldOutError('sold_out_tx');
+          }
+          await insertUserCoupon(conn);
+        });
+      }, tx);
+    }
     securityLog('coupon_claimed', req, { coupon_id: couponId }); // 쿠폰 봇(시나리오 3): 가입 직후 · 같은 IP에서 몰리는지 본다
     res.status(201).json({ success: true, message: '쿠폰을 받았습니다.', data: { id } });
   }
