@@ -27,6 +27,14 @@ jobs:
         options: >-
           --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root-pw"
           --health-interval=5s --health-timeout=3s --health-retries=30
+      # 쿠폰 번호표(test/coupon-redis.test.ts). 운영은 ElastiCache Serverless for Valkey(인프라 ADR-080)
+      valkey:
+        image: valkey/valkey:8.1
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="valkey-cli ping"
+          --health-interval=5s --health-timeout=3s --health-retries=30
     env:
       DB_PASSWORD: ci-app-pw
       JWT_SECRET: ci-only-jwt-secret
