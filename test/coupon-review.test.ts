@@ -98,6 +98,32 @@ test('쿠폰 발급이 잠금 앞에 줄 서 있어도 숙소 조회는 바로 �
   assert.equal(statuses.filter((s) => s === 201).length, 20, `응답: ${statuses}`);
 });
 
+// 3,000명 쏠림 진단(v2): 소진 확인을 통과해 쿠폰 연결 앞에 줄 선 요청이 소진 뒤에도 쿠폰 행을 하나씩 거쳐 503이 났다
+test('소진을 들은 뒤에는 줄 서 있던 발급 요청이 쿠폰 행에 가지 않고 바로 소진으로 답한다', async (t) => {
+  const couponId = await createCoupon(1);
+  const tokens = await Promise.all(Array.from({ length: 5 }, () => newUser()));
+  const log = t.mock.method(console, 'log');
+  // 쿠폰 행을 잠가 두면 2건(쿠폰 연결 수)은 UPDATE에서, 나머지 3건은 쿠폰 연결 앞에서 기다린다
+  const locker = await pool.getConnection();
+  await locker.beginTransaction();
+  await locker.query('SELECT id FROM coupons WHERE id = ? FOR UPDATE', [couponId]);
+  const claims = Promise.all(tokens.map((token) => claim(token, couponId)));
+  await waitForQueuedClaims(locker, couponId);
+  await locker.query('UPDATE coupons SET issued_count = quantity WHERE id = ?', [couponId]); // 그사이 다 나감
+  await locker.commit();
+  locker.release();
+
+  const statuses = (await claims).map((r) => r.status);
+  assert.deepEqual(statuses, [409, 409, 409, 409, 409]);
+  const outcomes = log.mock.calls
+    .map((c) => String(c.arguments[0]))
+    .filter((line) => line.includes('"coupon_claim_timing"') && line.includes(couponId))
+    .map((line) => JSON.parse(line).outcome);
+  // UPDATE까지 간 건 잠금 앞에 있던 2건뿐, 나머지는 BEGIN도 보내지 않았다
+  assert.equal(outcomes.filter((o) => o === 'sold_out_tx').length, 2, `결과: ${outcomes}`);
+  assert.equal(outcomes.length, 5, `결과: ${outcomes}`);
+});
+
 test('같은 사용자가 동시에 5번 받아도 1장만 발급된다', async () => {
   const token = await newUser();
   const couponId = await createCoupon(100);

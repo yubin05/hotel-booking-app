@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import type { PoolConnection } from 'mysql2/promise';
 import { authenticate } from '../auth';
-import { couponPool, type DbTiming, isDuplicateKey, isMissingReference, limited, pool, withTransaction } from '../db';
+import { couponPool, type DbTiming, inTransaction, isDuplicateKey, isMissingReference, limited, pool } from '../db';
 import { HttpError } from '../errors';
 import { securityLog } from '../log';
 import { utcIso } from '../time';
@@ -77,6 +77,12 @@ couponRouter.get('/mine', authenticate, async (req, res) => {
   res.json({ success: true, data });
 });
 
+// 이 서버가 소진을 한 번 들은 쿠폰. 3,000명 쏠림 진단(v2 migration.md)에서 소진 확인을 통과해 쿠폰 연결 앞에 줄 선 요청이
+// 소진 뒤에도 쿠폰 한 행을 하나씩 거치느라 3초 상한(503)에 걸렸다. 소진을 들은 뒤로는 그 쿠폰 요청을 DB에 보내지 않는다
+// shortcut: 서버 메모리라 수량을 늘려도 재시작 전까지 소진으로 답함, 수량 변경 기능이 생기면 만료 시간을 둘 것
+const soldOut = new Set<string>();
+const SOLD_OUT = '쿠폰이 모두 소진되었습니다.';
+
 // 선착순 발급: (쿠폰, 사용자) 유니크로 1인 1매, issued_count < quantity 조건부 UPDATE로 초과 발급 0건
 couponRouter.post('/:id/claim', authenticate, async (req, res) => {
   const couponId = String(req.params.id);
@@ -104,7 +110,13 @@ couponRouter.post('/:id/claim', authenticate, async (req, res) => {
     );
   }
 
+  function soldOutError(why: string): HttpError {
+    outcome = why;
+    return new HttpError(409, SOLD_OUT);
+  }
+
   async function claim(): Promise<void> {
+    if (soldOut.has(couponId)) throw soldOutError('sold_out_memory');
     // 시작 전·종료·소진은 잠금 없이 먼저 거른다 (오픈 직전에 몰리는 요청을 가볍게 돌려보낸다)
     const [rows] = await limited(
       pool,
@@ -122,40 +134,44 @@ couponRouter.post('/:id/claim', authenticate, async (req, res) => {
     if (!coupon.started) throw new HttpError(400, '아직 발급이 시작되지 않았습니다.');
     if (!coupon.open) throw new HttpError(400, '발급이 끝난 쿠폰입니다.');
     if (!coupon.remaining) {
-      outcome = 'sold_out_precheck';
-      throw new HttpError(409, '쿠폰이 모두 소진되었습니다.');
+      soldOut.add(couponId);
+      throw soldOutError('sold_out_precheck');
     }
 
     const id = uuidv7();
-    await withTransaction(async (conn) => {
-      // 쿠폰 행을 먼저 잠근다. 받은 기록 INSERT의 외래 키 검사가 쿠폰 행에 공유 잠금을 걸기 때문에, INSERT를 먼저 하면
-      // 동시 요청끼리 공유 잠금을 쥔 채 서로의 배타 잠금을 기다리다 교착(deadlock)이 나 쿠폰이 남아도 거절됐다
-      const [result] = await conn.query<ResultSetHeader>(
-        `UPDATE coupons SET issued_count = issued_count + 1
-          WHERE id = ? AND issued_count < quantity
-            AND starts_at <= UTC_TIMESTAMP() AND ends_at > UTC_TIMESTAMP()`,
-        [couponId],
-      );
-      if (result.affectedRows === 0) {
-        outcome = 'sold_out_tx';
-        throw new HttpError(409, '쿠폰이 모두 소진되었습니다.');
-      }
-      try {
-        await conn.query('INSERT INTO user_coupons (id, coupon_id, user_id) VALUES (?, ?, ?)', [
-          id,
-          couponId,
-          req.user!.userId,
-        ]);
-      } catch (err) {
-        // 트랜잭션이 되돌아가므로 위에서 올린 발급 수도 원래대로 돌아간다
-        if (isDuplicateKey(err)) {
-          outcome = 'duplicate';
-          throw new HttpError(409, '이미 받은 쿠폰입니다.');
+    await limited(couponPool, (c) => {
+      // 줄 서 있던 사이에 소진됐으면 BEGIN도 보내지 않고 연결을 다음 요청에 넘긴다
+      if (soldOut.has(couponId)) throw soldOutError('sold_out_memory');
+      return inTransaction(c, async (conn) => {
+        // 쿠폰 행을 먼저 잠근다. 받은 기록 INSERT의 외래 키 검사가 쿠폰 행에 공유 잠금을 걸기 때문에, INSERT를 먼저 하면
+        // 동시 요청끼리 공유 잠금을 쥔 채 서로의 배타 잠금을 기다리다 교착(deadlock)이 나 쿠폰이 남아도 거절됐다
+        const [result] = await conn.query<ResultSetHeader>(
+          `UPDATE coupons SET issued_count = issued_count + 1
+            WHERE id = ? AND issued_count < quantity
+              AND starts_at <= UTC_TIMESTAMP() AND ends_at > UTC_TIMESTAMP()`,
+          [couponId],
+        );
+        if (result.affectedRows === 0) {
+          soldOut.add(couponId); // 연결을 돌려주기 전에 표시해야 바로 뒤에 줄 선 요청이 본다
+          throw soldOutError('sold_out_tx');
         }
-        if (isMissingReference(err)) throw new HttpError(401, '로그인 정보가 유효하지 않습니다. 다시 로그인해주세요.');
-        throw err;
-      }
-    }, couponPool, tx);
+        try {
+          await conn.query('INSERT INTO user_coupons (id, coupon_id, user_id) VALUES (?, ?, ?)', [
+            id,
+            couponId,
+            req.user!.userId,
+          ]);
+        } catch (err) {
+          // 트랜잭션이 되돌아가므로 위에서 올린 발급 수도 원래대로 돌아간다
+          if (isDuplicateKey(err)) {
+            outcome = 'duplicate';
+            throw new HttpError(409, '이미 받은 쿠폰입니다.');
+          }
+          if (isMissingReference(err)) throw new HttpError(401, '로그인 정보가 유효하지 않습니다. 다시 로그인해주세요.');
+          throw err;
+        }
+      });
+    }, tx);
     securityLog('coupon_claimed', req, { coupon_id: couponId }); // 쿠폰 봇(시나리오 3): 가입 직후 · 같은 IP에서 몰리는지 본다
     res.status(201).json({ success: true, message: '쿠폰을 받았습니다.', data: { id } });
   }
