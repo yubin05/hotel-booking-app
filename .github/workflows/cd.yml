@@ -19,6 +19,9 @@ env:
   SERVICE: app
   APP_FAMILY: hotel-booking-aws-v2-app
   MIGRATE_FAMILY: hotel-booking-aws-v2-migrate
+  # 쿠폰 받기만 처리하는 서버. 쿠폰 이벤트 날만 떠 있음(인프라 coupon_service, v2 migration.md 회차 6 · 7)
+  COUPON_SERVICE: coupon
+  COUPON_FAMILY: hotel-booking-aws-v2-coupon
   LOG_GROUP: /ecs/hotel-booking-aws-v2
 
 jobs:
@@ -96,6 +99,14 @@ jobs:
           echo "APP_ARN=$APP_ARN" >> "$GITHUB_ENV"
           echo "MIGRATE_ARN=$MIGRATE_ARN" >> "$GITHUB_ENV"
           echo "레시피 개정: ${APP_ARN##*/}, ${MIGRATE_ARN##*/}" >> "$GITHUB_STEP_SUMMARY"
+          # 쿠폰 서버가 떠 있는 날만 같은 이미지로 개정
+          COUPON_STATUS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$COUPON_SERVICE" \
+            --query 'services[0].status' --output text)
+          if [ "$COUPON_STATUS" = "ACTIVE" ]; then
+            COUPON_ARN=$(register "$COUPON_FAMILY")
+            echo "COUPON_ARN=$COUPON_ARN" >> "$GITHUB_ENV"
+            echo "쿠폰 서버 레시피 개정: ${COUPON_ARN##*/}" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # 스키마 태스크를 1번 실행하고 끝나기를 기다림. 종료 코드가 0이 아니면 앱을 바꾸지 않고 멈춤 (ADR-031)
       - name: 스키마 태스크 (migrate)
@@ -142,3 +153,18 @@ jobs:
           fi
           # 2단계 완료 기준: 커밋부터 반영까지 시간 (03-plan)
           echo "배포 완료: ${APP_ARN##*/}, 커밋부터 반영까지 $(( $(date +%s) - $(git log -1 --format=%ct) ))초" >> "$GITHUB_STEP_SUMMARY"
+
+      # 쿠폰 서버도 같은 버전으로. 앱과 같은 방식(롤링 교체 → 안정 대기 → 되돌아갔는지 확인)
+      - name: 쿠폰 서버 롤링 교체
+        if: steps.infra.outputs.up == 'true' && env.COUPON_ARN != ''
+        run: |
+          aws ecs update-service --cluster "$CLUSTER" --service "$COUPON_SERVICE" --task-definition "$COUPON_ARN" \
+            --query 'service.taskDefinition' --output text
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$COUPON_SERVICE"
+          NOW=$(aws ecs describe-services --cluster "$CLUSTER" --services "$COUPON_SERVICE" \
+            --query 'services[0].taskDefinition' --output text)
+          if [ "$NOW" != "$COUPON_ARN" ]; then
+            echo "쿠폰 서버 교체 실패: ${NOW##*/}로 되돌아감(서킷 브레이커 롤백)" | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            exit 1
+          fi
+          echo "쿠폰 서버 배포 완료: ${COUPON_ARN##*/}" >> "$GITHUB_STEP_SUMMARY"
