@@ -30,3 +30,13 @@ test('1초 묶음을 EMF 한 줄로: 요청 수 · 5xx 수 · p95를 1초 해상
     ['Requests', 'Errors5xx'],
   );
 });
+
+test('쿠폰 서버처럼 SERVICE_NAME이 있으면 그 이름으로 남긴다 (서비스별로 나눠 보기)', () => {
+  process.env.SERVICE_NAME = 'coupon';
+  try {
+    assert.equal(JSON.parse(flushEmf()).Service, 'coupon');
+  } finally {
+    delete process.env.SERVICE_NAME;
+  }
+  assert.equal(JSON.parse(flushEmf()).Service, 'app');
+});

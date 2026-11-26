@@ -37,7 +37,8 @@ export function flushEmf(now = Date.now()): string {
   errors = 0;
   return JSON.stringify({
     _aws: { Timestamp: now, CloudWatchMetrics: [{ Namespace: NAMESPACE, Dimensions: [['Service']], Metrics: metrics }] },
-    Service: 'app',
+    // 쿠폰 받기만 처리하는 서버는 인프라가 SERVICE_NAME=coupon을 넣음(쿠폰 격벽, v2 migration.md 회차 6 · 7) → 관제에서 서비스별로 나뉨
+    Service: process.env.SERVICE_NAME ?? 'app',
     ...values,
   });
 }
