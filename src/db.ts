@@ -95,18 +95,20 @@ for (const p of [pool, couponPool]) {
   });
 }
 
+export async function inTransaction<T>(conn: PoolConnection, fn: (conn: PoolConnection) => Promise<T>): Promise<T> {
+  await conn.beginTransaction();
+  try {
+    const result = await fn(conn);
+    await conn.commit();
+    return result;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  }
+}
+
 export function withTransaction<T>(fn: (conn: PoolConnection) => Promise<T>, from: Pool = pool, timing?: DbTiming): Promise<T> {
-  return limited(from, async (conn) => {
-    await conn.beginTransaction();
-    try {
-      const result = await fn(conn);
-      await conn.commit();
-      return result;
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    }
-  }, timing);
+  return limited(from, (conn) => inTransaction(conn, fn), timing);
 }
 
 export function isDuplicateKey(err: unknown): boolean {
